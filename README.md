@@ -11,7 +11,7 @@ World Models for Lunar Landing in Kerbal Space Program
 
 指标分别记录安全着陆率、目标位置误差和推进剂消耗。详见 [proposal 解读](docs/proposal.md) 与 [环境要求](docs/environment.md)。
 
-## 已有内容与边界
+## 已有内容
 
 - KSP 1.12.5 + kRPC 0.7.0 的只读诊断、遥测记录及显式灯光控制测试。
 - Python 3.12–3.14 环境配置，固定版本的 NumPy、SciPy、Gymnasium、PyTorch、Matplotlib。
