@@ -1,0 +1,11 @@
+[project]
+name = "ksp-lunar-world-model"
+version = "0.1.0"
+description = "Environment preparation for world models for Mun landing in KSP"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+# This repository currently contains scripts and specifications, not an
+# installable agent package. Install requirements/dev.txt directly.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,77 @@
+{
+  "checked_at_utc": "2026-11-09T02:05:00.349370+00:00",
+  "status": "PASS",
+  "platform": {
+    "system": "Darwin",
+    "release": "25.6.0",
+    "machine": "arm64",
+    "python_implementation": "CPython"
+  },
+  "recommended_device": "mps",
+  "live_ksp_connection": "NOT_CHECKED",
+  "checks": {
+    "python": {
+      "status": "PASS",
+      "version": "3.14.4",
+      "required": ">=3.12,<3.15"
+    },
+    "krpc": {
+      "status": "PASS",
+      "version": "0.7.0"
+    },
+    "protobuf": {
+      "status": "PASS",
+      "version": "7.36.2"
+    },
+    "numpy": {
+      "status": "PASS",
+      "version": "2.5.4"
+    },
+    "scipy": {
+      "status": "PASS",
+      "version": "1.18.1"
+    },
+    "gymnasium": {
+      "status": "PASS",
+      "version": "1.4.0"
+    },
+    "torch": {
+      "status": "PASS",
+      "version": "2.15.0"
+    },
+    "matplotlib": {
+      "status": "PASS",
+      "version": "3.11.2"
+    },
+    "numeric_stack": {
+      "status": "PASS",
+      "linear_solve_residual": 1.7763568394002505e-15,
+      "box_sample_shape": [
+        4
+      ],
+      "box_sample_dtype": "float32"
+    },
+    "torch_cpu": {
+      "status": "PASS",
+      "device": "cpu",
+      "loss": 8.203125,
+      "gradient_norm": 5.385527610778809
+    },
+    "mps": {
+      "built": true,
+      "available": true,
+      "status": "PASS",
+      "tensor_result": 17.0
+    },
+    "ksp_files": {
+      "status": "PASS",
+      "required": true,
+      "path_configured": true,
+      "plugin_version": "0.7.0",
+      "ksp_version": "1.12.5",
+      "ksp_version_min": "1.12.5",
+      "ksp_version_max": "1.12.5",
+      "note": "Plugin metadata only; the installed game version and live connection are not verified"
+    }
+  }
+}

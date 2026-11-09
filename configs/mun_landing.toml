@@ -1,0 +1,31 @@
+# Draft specification, not a runnable/validated landing environment.
+# Unresolved numerical choices are deliberately omitted.
+status = "draft"
+task = "powered_descent"
+target_body = "Mun"
+initial_state_ready = false
+success_thresholds_ready = false
+reset_step_validated = false
+
+[connection]
+address = "127.0.0.1"
+rpc_port = 50000
+stream_port = 50001
+client_version = "0.7.0"
+server_version = "0.7.0"
+game_version = "1.12.5"
+
+[design_proposal]
+# These are implementation suggestions, not decisions stated by the slides.
+observation = "numeric_state"
+dynamics = "rigid_body_6dof"
+step_api = "gymnasium"
+time_source = "simulation_ut"
+reset_strategy = "named_snapshot_and_readback"
+
+[evaluation]
+metrics = ["safe_landing_rate", "target_position_error_m", "propellant_consumed_kg"]
+ood_axes = ["mass", "inertia", "thrust", "gravity"]
+freeze_during_ood_evaluation = true
+rq2_identical_ksp_dataset = true
+budget_counters = ["train_transitions", "evaluation_transitions", "simulation_seconds", "resets", "wall_seconds"]
