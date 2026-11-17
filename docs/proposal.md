@@ -1,26 +1,67 @@
 # Proposal interpretation
 
-Source: `开题1.pptx`, four slides, reviewed 2026-11-09. The original slides remain outside this repository; their SHA-256 is recorded in `proposal-source.json`.
+Source: `KSP_World_Model_Proposal_final.pptx`, nine slides, reviewed 2026-11-17. The deck binary is kept locally under `downloads/proposals/` (gitignored), and its SHA-256 is recorded in `proposal-source.json`. The earlier four-slide `开题1.pptx` and its SHA-256 remain recorded there as the superseded source.
 
-## Requirements stated in the slides
+This document records what the final proposal decides and what it leaves open. The normative task details are in [task-spec.md](task-spec.md), the controlled comparison is in [experiment-protocol.md](experiment-protocol.md), and the machine-readable subset is in `configs/mun_landing.toml`.
 
-| Slide | Proposal content | Environment implication |
+## Research questions
+
+| Question | Proposal content | Environment implication |
 | --- | --- | --- |
-| 1 | World Models for Lunar Landing in Kerbal Space Program | World-model research using KSP as the target environment |
-| 2 | Powered descent toward the Mun; safe, precise landing with efficient propellant use | A Mun descent scenario and separate safety, position-error and fuel metrics |
-| 3 | Limited KSP interaction budget; simulator mismatch; pretrain then adapt; imagined trajectories | A pretraining simulator, a KSP adapter and explicit interaction accounting |
-| 4, RQ1 | Less KSP data to reach a fixed safe-landing rate | Common success criterion, evaluation initial states and budget definition |
-| 4, RQ2 | Additional gains from imagined policy updates using the same KSP dataset | Freeze and hash the common dataset, preserve identical train/test splits |
-| 4, RQ3 | Generalization to mass, inertia, thrust and gravity changes without further training | Held-out physical conditions, with model and policy frozen during evaluation |
+| RQ1, data efficiency | Does pretraining reduce the KSP interaction budget needed to reach a fixed safe-landing rate? | Common success criterion, evaluation initial states and explicit budget accounting |
+| RQ2, imagined policy updates | Do imagined policy updates provide additional gains after transfer, using the same KSP dataset? | Freeze and hash one common dataset, preserve identical train/test splits, and compare against a no-imagination baseline |
+| RQ3, physical generalization | How well does the agent generalize to mass, inertia, thrust and gravity changes without additional training? | Held-out physical conditions, with world model and policy frozen during evaluation |
 
-## Implementation recommendations
+## Task definition
 
-Start with numeric states and a continuous-action rigid-body descent simulator. Numeric observation is a proposed starting point; the slides do not require images. Because RQ3 includes inertia, the complete pretraining task must include rotational dynamics, attitude and angular velocity. A point-mass prototype can support early checks but cannot establish inertia generalization.
+The final proposal fixes the qualitative task; numeric choices remain open.
 
-Use a common Gymnasium-style API, coordinate definitions, SI units and action duration across the pretraining and KSP environments. Fix a lander, initial-descent snapshots and evaluation targets. Treat imagined transitions separately from real KSP transitions.
+| Area | Decision |
+| --- | --- |
+| Scenario | Powered descent toward the Mun in KSP, with a fixed nominal lander, fixed nominal gravity and a flat target site |
+| Initialization | Randomize initial position, velocity and attitude for all methods; exact distributions are TBD |
+| Observation | Numeric telemetry: position and velocity relative to the target, attitude, angular velocity and remaining main-engine fuel |
+| Action | RCS pitch/yaw/roll and main-engine throttle |
+| Safety | Touchdown speed, tilt and angular velocity within limits, stable for 5 s; exact limits are TBD |
+| Precision | Distance from the target in the surface tangent plane; precision rate uses all attempts as the denominator |
+| Propellant | Total consumed propellant mass, with main-engine and RCS breakdowns on safe landings |
+| Failure | Crashes, timeouts and fuel-exhaustion aborts count as failures; connection loss is an infrastructure error |
+| Nominal physics | Main-engine fuel consumption changes mass normally; RCS reserves are ample and depletion has negligible dynamics effects |
+
+## Technical approach
+
+The proposal describes three stages:
+
+1. **Simulator pretraining.** Build a fast landing simulator, randomize initial states, and train the world model and policy.
+2. **Zero-shot evaluation.** Transfer the pretrained agent to KSP before adaptation and measure the initial transfer gap.
+3. **KSP adaptation.** Collect a limited number of KSP interactions, update the world model, and improve the policy in imagination. Adaptation alternates replay of actual interactions with model imagination.
+
+The reward combines a landing reward with crash, landing-error, touchdown-speed and fuel-use penalties; safe landing is the primary objective. Fuel regularization is calculated from actual propellant consumption, and landing error is measured in the surface tangent plane. Hyperparameters are tuned on validation scenarios and the final test scenarios are fixed separately. Dreamer is cited as a reference, not selected as a final algorithm.
+
+## Controlled experiment
+
+The final proposal defines a 2x2 comparison with matched observation, action, reward and model capacity:
+
+| Group | Pretraining | Imagination |
+| --- | --- | --- |
+| A | No | No |
+| B | No | Yes |
+| C | Yes | No |
+| D | Yes | Yes |
+
+- A vs C and B vs D estimate the pretraining benefit.
+- A vs B and C vs D estimate the imagination benefit.
+- All groups use the same telemetry states, action space, rewards, model capacities, KSP interaction budgets, evaluation sets and number of policy updates.
+- The learning-curve threshold is 80% success on validation tasks; the final result is reported on a fixed test set. This is distinct from the touchdown safety criterion.
+- Record `N_sim`, `N_KSP`, policy and model updates, GPU hours and wall-clock time separately.
+- Use at least three training seeds and separate adaptation, validation and test sets.
+
+## Generalization evaluation
+
+Test the frozen world model and policy under held-out mass, inertia, thrust and gravity changes without additional training. Change one parameter at a time over ranges fixed before testing, use initial states disjoint from training, and evaluate in both the fast simulator and KSP. Report success rate, landing error and propellant use relative to nominal conditions.
 
 ## Decisions still open
 
-The proposal does not choose a pretraining simulator, world-model algorithm, Dreamer version, visual encoder, specific lander, descent altitude/velocity distribution, control rate, success thresholds, KSP data budget, seed count, OOD parameter ranges or GPU model. `configs/mun_landing.toml` is a draft and deliberately leaves these numerical choices unset.
+The final proposal does not fix the lander model, target coordinates, descent altitude, initial-state distributions, control rate, episode horizon, touchdown thresholds, target radius, KSP data budget, OOD perturbation ranges, world-model architecture or compute budget. The 80% learning-curve threshold and the minimum of three seeds are stated, but the exact seed count and per-group budgets remain open.
 
-This initial repository prepares dependencies, diagnostics and experimental requirements. It does not implement the pretraining simulator, KSP landing `reset/step`, agent training or the RQ1–RQ3 experiments.
+`configs/mun_landing.toml` deliberately leaves these numerical choices as `TBD` and keeps `initial_state_ready`, `success_thresholds_ready` and `reset_step_validated` false. This repository still does not implement the pretraining simulator, KSP landing `reset/step`, agent training or the RQ1-RQ3 experiments.

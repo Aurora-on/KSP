@@ -1,5 +1,17 @@
 # Validation record
 
+## 2026-11-17: final proposal review
+
+Reviewed the nine-slide `KSP_World_Model_Proposal_final.pptx` and recorded its qualitative decisions in [`task-spec.md`](task-spec.md), [`experiment-protocol.md`](experiment-protocol.md), [`proposal.md`](proposal.md) and `configs/mun_landing.toml`.
+
+- The task is fixed as a nominal Mun powered descent with a fixed lander, fixed nominal gravity and a flat site; initial position, velocity and attitude are randomized.
+- The observation is numeric telemetry, and the action is RCS pitch/yaw/roll plus main-engine throttle.
+- Safety uses a 5 s stability window; crashes, timeouts and fuel-exhaustion aborts count as failures.
+- The controlled comparison is the 2x2 pretraining/imagination design, with an 80% validation learning-curve threshold and at least three seeds.
+- No code, KSP run, training run or experiment was performed. Numeric thresholds, initial-state distributions, target radius, budgets, OOD ranges and model architecture remain open.
+- Offline Python syntax compilation and all 8 unit tests pass, including the new task-config invariants.
+- The deck's images are context, not experimental results. The binary is kept in the gitignored `downloads/proposals/` directory; its SHA-256 is recorded in `proposal-source.json`.
+
 ## 2026-11-09: repository and scientific environment
 
 Local machine: Apple M5, arm64, 16 GiB memory, Python 3.14.4. All dependencies were installed in this repository's `.venv`; the earlier standalone KSP control environment was preserved.

@@ -1,8 +1,17 @@
 {
-  "source_filename": "开题1.pptx",
-  "sha256": "b1308b38e7d86183487b8fb0b869a5870fdf70c8230a29d7ab7507db5c16518f",
-  "review_date": "2026-11-09",
-  "slide_count": 4,
+  "source_filename": "KSP_World_Model_Proposal_final.pptx",
+  "sha256": "29234525b471cf24924674e38c20e4791e8139c53c82ec0b8b292f5ac54b8da6",
+  "hash_status": "recorded 2026-11-17 from the local copy",
+  "local_path": "downloads/proposals/KSP_World_Model_Proposal_final.pptx",
+  "review_date": "2026-11-17",
+  "slide_count": 9,
   "title": "World Models for Lunar Landing in Kerbal Space Program",
-  "source_slide_binary_in_repository": false
+  "source_slide_binary_in_repository": false,
+  "supersedes": {
+    "source_filename": "开题1.pptx",
+    "sha256": "b1308b38e7d86183487b8fb0b869a5870fdf70c8230a29d7ab7507db5c16518f",
+    "review_date": "2026-11-09",
+    "slide_count": 4,
+    "source_slide_binary_in_repository": false
+  }
 }

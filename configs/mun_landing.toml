@@ -1,6 +1,8 @@
-# Draft specification, not a runnable/validated landing environment.
-# Unresolved numerical choices are deliberately omitted.
-status = "draft"
+# Mun landing task contract.
+# Qualitative decisions follow KSP_World_Model_Proposal_final.pptx
+# (reviewed 2026-11-17). Numeric choices marked "TBD" are deliberately
+# unset; this is not a runnable or validated environment yet.
+status = "qualitative_defined_numeric_tbd"
 task = "powered_descent"
 target_body = "Mun"
 initial_state_ready = false
@@ -15,17 +17,103 @@ client_version = "0.7.0"
 server_version = "0.7.0"
 game_version = "1.12.5"
 
-[design_proposal]
-# These are implementation suggestions, not decisions stated by the slides.
-observation = "numeric_state"
+[scenario]
+# Nominal condition. Physical OOD variants are listed under [evaluation].
+site = "flat"
+gravity = "fixed_nominal"
+craft = "fixed_nominal"
+randomize_initial = ["position", "velocity", "attitude"]
+descent_altitude_m = "TBD"
+target_position = "TBD"
+initial_position_range = "TBD"
+initial_velocity_range = "TBD"
+initial_attitude_range = "TBD"
+control_hz = "TBD"
+episode_horizon_s = "TBD"
+
+[observation]
+fields = [
+  "position",
+  "velocity",
+  "attitude_quaternion",
+  "angular_velocity",
+  "main_engine_fuel",
+]
+frame = "TBD"  # target-relative surface frame; define before adapter implementation
+units = "SI"
+normalization = "TBD"
+# Mass and inertia are read-only telemetry. Whether they are part of the
+# observation or only used for OOD conditioning must be decided before training.
+
+[action]
+fields = ["rcs_pitch", "rcs_yaw", "rcs_roll", "main_engine_throttle"]
+rcs_semantics = "TBD"  # torque command vs normalized input
+throttle_range = [0.0, 1.0]
+autopilot_inner_loop = false
+
+[safety]
+# The 5 s stability window is a task decision; the limits themselves are TBD.
+stable_window_s = 5.0
+max_touchdown_speed_m_s = "TBD"
+max_touchdown_tilt_deg = "TBD"
+max_touchdown_angular_velocity_deg_s = "TBD"
+target_radius_m = "TBD"
+
+[failure]
+count_as_failure = ["crash", "timeout", "fuel_exhaustion_abort"]
+# Connection, reset and tick failures are infrastructure errors, not landing outcomes.
+infrastructure_errors = ["connection_loss", "reset_failure", "tick_timeout"]
+
+[metrics]
+safe_landing_rate = "safe_landings / all_attempts"
+precision_rate = "attempts_within_target_radius / all_attempts"
+landing_error = "surface_tangent_plane_distance; summarize over safe landings"
+propellant_consumed = "total mass consumed; report main-engine and RCS breakdown on safe landings"
+
+[data]
+# Imagined transitions are never counted as KSP data.
+budget_counters = [
+  "ksp_train_transitions",
+  "ksp_evaluation_transitions",
+  "simulation_seconds",
+  "resets",
+  "wall_seconds",
+  "policy_updates",
+  "model_updates",
+  "gpu_hours",
+]
+imagination_is_not_ksp_data = true
+splits = ["adaptation", "validation", "test"]
+
+[experiment]
+design = "2x2_pretraining_by_imagination"
+groups = ["A", "B", "C", "D"]
+# Learning-curve checkpoint threshold, not the touchdown safety criterion.
+validation_success_threshold = 0.80
+min_training_seeds = 3
+matched_factors = [
+  "observation",
+  "action",
+  "reward",
+  "model_capacity",
+  "policy_updates",
+  "ksp_budget",
+  "evaluation_set",
+]
+# Exact N_sim, N_KSP, seed count, model architecture and compute budget remain TBD.
+
+[evaluation]
+metrics = ["safe_landing_rate", "precision_rate", "landing_error", "propellant_consumed"]
+ood_axes = ["mass", "inertia", "thrust", "gravity"]
+ood_protocol = "one_axis_at_a_time"
+ood_ranges = "TBD"
+freeze_during_ood_evaluation = true
+evaluate_in = ["fast_simulator", "ksp"]
+rq2_identical_ksp_dataset = true
+
+[implementation]
+# Still implementation recommendations unless a later decision record says otherwise.
 dynamics = "rigid_body_6dof"
 step_api = "gymnasium"
 time_source = "simulation_ut"
 reset_strategy = "named_snapshot_and_readback"
-
-[evaluation]
-metrics = ["safe_landing_rate", "target_position_error_m", "propellant_consumed_kg"]
-ood_axes = ["mass", "inertia", "thrust", "gravity"]
-freeze_during_ood_evaluation = true
-rq2_identical_ksp_dataset = true
-budget_counters = ["train_transitions", "evaluation_transitions", "simulation_seconds", "resets", "wall_seconds"]
