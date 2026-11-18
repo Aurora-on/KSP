@@ -30,6 +30,7 @@ from ksp_env import (
 
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "ksp_adapter_test.toml"
+MUN_CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "ksp_mun_test.toml"
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -43,6 +44,19 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(config.raw["scenario"]["save_name"], "persistent")
         self.assertEqual(config.raw["observation"]["frame"], "target_surface")
         self.assertEqual(config.raw["action"]["rcs_semantics"], "normalized_input")
+        for key in ("initial_state_ready", "success_thresholds_ready", "reset_step_validated"):
+            self.assertFalse(config.raw[key])
+
+    def test_mun_adapter_test_profile_is_complete_but_not_task_ready(self):
+        config = load_config(MUN_CONFIG_PATH)
+        env = KSPEnv(config)
+        env._require_observation_config()
+        env._require_action_config()
+        self.assertEqual(config.raw["status"], "adapter_test_only")
+        self.assertEqual(config.raw["target_body"], "Mun")
+        self.assertEqual(config.raw["scenario"]["save_name"], "Mun landing 1")
+        self.assertEqual(config.raw["scenario"]["target_position"], [0.0, 139.70616, 0.0])
+        self.assertEqual(config.raw["observation"]["main_engine_fuel_resource"], "LiquidFuel")
         for key in ("initial_state_ready", "success_thresholds_ready", "reset_step_validated"):
             self.assertFalse(config.raw[key])
 

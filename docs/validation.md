@@ -25,7 +25,32 @@ verified against the official ZIP SHA-256 `cd4f062e...8bf028`.
   These are adapter mechanics only, not task validation. Live reset and step
   used `KSP_LIVE_RESET_STEP=1` and remain opt-in.
 - kRPC's `SpaceCenter.load` takes the save file name inside the current save
-  folder (for example `persistent`), not the folder name.
+  folder (for example `persistent` or `Mun landing 1`), not the folder name.
+- The new `configs/ksp_mun_test.toml` profile was exercised against
+  `Mun landing 1`. `reset()` returned the `两级着陆器` in Flight with UT 367.78
+  and `game_state_loads=15`; one zero-action step advanced UT by 0.02 s with
+  `terminated=False`, `truncated=False` and `episode_evaluated=False`. This is
+  adapter mechanics on a Mun orbit test target, not a landing.
+- `scripts/probe_controls.py` was first run with `--execute --stage-once` on the
+  pre-stage save. The saved state had current stage 3 and no active engine; one
+  stage activation changed stage `3 -> 2` and active engines `0 -> 4`. A 0.05
+  throttle pulse produced a peak of 12,000 N thrust and consumed 0.3545 kg of
+  propellant; thrust returned to zero after the one-tick throttle lag.
+- After `Mun landing 1.sfs` was overwritten with the stage-2 state, a second
+  probe ran without staging. RCS pitch/yaw/roll pulses produced peak angular
+  speeds of 0.006873/0.006753/0.006312 rad/s and residual rates around
+  0.00027 rad/s after the counter-pulse. Monopropellant consumption was
+  0.02013/0.02013/0.01699 units per axis, total 0.05725 units.
+- Throttle was zeroed and control toggles were restored after both probes;
+  staging is not reversible, so the live session remains at stage 2 with four
+  active engines. This control-response run is mechanical evidence only; no
+  Mun landing or task-level threshold was validated.
+- After the probe, `Mun landing 1.sfs` was overwritten from the live game with
+  current stage 2 and four active `liquidEngine3.v2` engines. A fresh
+  `reset()` on that save returned stage 2, active engines `4 / 9`, throttle 0
+  and 450 LiquidFuel. The test profile target was updated to the new saved
+  sub-satellite longitude `139.70616`. This makes the save usable for
+  reset/step mechanics, but it is still a test state, not a frozen task.
 - Task observation, reset and step remain blocked by unresolved `TBD`
   target/frame/fuel/RCS decisions in the normative config; no landing was
   validated.

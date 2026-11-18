@@ -47,28 +47,59 @@ The adapter must reuse kRPC instead of reimplementing its transport or math.
 `AutoPilot` is deliberately not used: it would hide an inner-loop controller
 inside the environment and change the task dynamics.
 
-## Adapter test profile
+## Adapter test profiles
 
-`configs/ksp_adapter_test.toml` is a non-task profile for exercising the live
-adapter on the local Kerbin launchpad save. It fixes a test target, a test fuel
-resource and normalized RCS input so `observe()`, `reset()` and `step()` can be
-tested before the Mun task is frozen.
+Two non-task profiles exercise the live adapter:
 
-It is explicitly marked `status = "adapter_test_only"` and keeps
+- `configs/ksp_adapter_test.toml`: Kerbin launchpad save file `persistent`,
+  target at the launchpad.
+- `configs/ksp_mun_test.toml`: Mun orbit save file `Mun landing 1`, target at
+  the sub-satellite point of the saved orbit.
+
+Both are explicitly marked `status = "adapter_test_only"` and keep
 `initial_state_ready`, `success_thresholds_ready` and
-`reset_step_validated` false. Do not report results from this profile as Mun
-task results.
+`reset_step_validated` false. Do not report results from these profiles as Mun
+task results. The Mun test target is not a frozen final landing site.
 
 ```python
-env = KSPEnv.from_config("configs/ksp_adapter_test.toml")
+env = KSPEnv.from_config("configs/ksp_mun_test.toml")
 ```
 
-The profile's save name is machine-local and is passed to kRPC's
+The profile save names are machine-local and are passed to kRPC's
 `SpaceCenter.load`, which expects the save file name inside the current save
-folder (for example `persistent`), not the folder name. Replace it or move it to
-a local manifest when using the profile on another machine. Live `observe()`,
-`reset()` and one zero-action `step()` have been verified against the local
-launchpad; these are mechanical checks only, not task validation.
+folder (for example `persistent` or `Mun landing 1`), not the folder name.
+Replace them or move them to a local manifest when using the profiles on another
+machine. Live `observe()`, `reset()` and one zero-action `step()` have been
+verified against both local profiles; these are mechanical checks only, not task
+validation.
+
+## Control response probe
+
+`scripts/probe_controls.py` exercises the main engine and RCS without changing
+the task contract. It is read-only by default; `--execute` sends short pulses.
+
+```sh
+.venv/bin/python scripts/probe_controls.py \
+  --config configs/ksp_mun_test.toml --execute \
+  --stage-once --output reports/control-response.json
+```
+
+- `--stage-once` activates at most **one** stage, and only when no engine is
+  active. It never loops through stages, because a second activation could fire
+  separation motors or decouplers. Staging cannot be undone.
+- The engine probe applies a short throttle pulse (default 5 ticks at 0.05) and
+  records thrust, mass and propellant deltas. Engine thrust can persist for one
+  tick after the throttle command; the script waits for it to settle.
+- Each RCS axis gets a short pulse and an equal counter-pulse (default 10 ticks
+  at 0.5). Peak and residual angular speed are recorded, along with the RCS
+  propellant delta for that axis. Monopropellant consumption is reported
+  explicitly and aggregated across axes.
+- Throttle is zeroed and RCS/SAS/reaction-wheel/input-mode toggles are restored
+  from the pre-probe snapshot. The **stage is not restored**; re-save a new
+  initial state if the active engine configuration should become the episode
+  start.
+
+The script writes `reports/control-response.json` when `--output` is given.
 
 ## Public API
 
@@ -162,8 +193,12 @@ physics step:
 
 ```sh
 KSP_LIVE_RESET_STEP=1 .venv/bin/python -m unittest discover -s tests -p 'test_ksp_env_live.py' -v
+
+# Mun orbit profile instead of the default Kerbin launchpad profile
+KSP_LIVE_RESET_STEP=1 KSP_TEST_CONFIG=configs/ksp_mun_test.toml \
+  .venv/bin/python -m unittest discover -s tests -p 'test_ksp_env_live.py' -v
 ```
 
-The second command loads the save named in `configs/ksp_adapter_test.toml` and
-writes control inputs; it is not read-only and is not task validation. Both live
+The reset/step commands load the save named in the selected profile and write
+control inputs; they are not read-only and are not task validation. Both live
 tests are skipped by default and are never run in CI.

@@ -71,7 +71,7 @@ configs/       Mun 任务契约（数值 TBD）与 adapter 测试配置（非任
 docs/          proposal 对照、任务契约、实验协议、环境要求、验证记录与开发顺序
 ksp_env/       可导入的 KSP 环境接口（连接、观测、动作、reset/step 骨架）
 requirements/  直接依赖、开发依赖、本机完整版本快照
-scripts/       环境安装、离线检查、游戏连接诊断、遥测
+scripts/       环境安装、离线检查、游戏连接诊断、遥测、控制响应探测
 tests/         不依赖 KSP 的检查规则测试
 ```
 

@@ -14,7 +14,10 @@ from pathlib import Path
 
 from ksp_env import Action, KSPEnv
 
-TEST_CONFIG = Path(__file__).resolve().parents[1] / "configs" / "ksp_adapter_test.toml"
+TEST_CONFIG = os.environ.get(
+    "KSP_TEST_CONFIG",
+    str(Path(__file__).resolve().parents[1] / "configs" / "ksp_adapter_test.toml"),
+)
 
 
 @unittest.skipUnless(os.environ.get("KSP_LIVE") == "1", "set KSP_LIVE=1 with KSP and kRPC running")
