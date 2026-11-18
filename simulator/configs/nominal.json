@@ -1,0 +1,60 @@
+{
+  "vehicle": {
+    "gravity": 1.63,
+    "dry_mass": 1200.0,
+    "fuel_capacity": 600.0,
+    "max_thrust": 9000.0,
+    "main_isp": 310.0,
+    "inertia": [
+      1200.0,
+      1200.0,
+      800.0
+    ],
+    "rcs_torque": [
+      900.0,
+      900.0,
+      400.0
+    ],
+    "rcs_isp": 240.0,
+    "rcs_lever_arm": 1.4
+  },
+  "initial": {
+    "horizontal_position": 30.0,
+    "altitude": [
+      80.0,
+      120.0
+    ],
+    "horizontal_velocity": 2.0,
+    "vertical_velocity": [
+      -8.0,
+      -3.0
+    ],
+    "max_tilt_deg": 12.0,
+    "max_angular_speed": 0.05
+  },
+  "landing": {
+    "max_touchdown_speed": 2.0,
+    "max_tilt_deg": 10.0,
+    "max_angular_speed": 0.2,
+    "stability_time": 5.0,
+    "target_radius": 5.0,
+    "ground_friction": 0.8,
+    "ground_angular_damping": 8.0
+  },
+  "reward": {
+    "time_cost": 0.02,
+    "horizontal_cost": 0.01,
+    "speed_cost": 0.005,
+    "tilt_cost": 0.02,
+    "main_fuel_cost": 0.1,
+    "rcs_fuel_cost": 1.0,
+    "safe_bonus": 100.0,
+    "crash_cost": 100.0,
+    "abort_cost": 50.0
+  },
+  "control_dt": 0.1,
+  "physics_dt": 0.02,
+  "max_time": 90.0,
+  "max_horizontal_distance": 1000.0,
+  "max_altitude": 2000.0
+}

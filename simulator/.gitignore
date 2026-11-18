@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+
+# Local generated trajectories, evaluation datasets and machine-specific logs.
+artifacts/
+reports/

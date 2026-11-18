@@ -1,0 +1,330 @@
+{
+  "validated_on": "2026-11-18",
+  "timezone": "Asia/Shanghai",
+  "scope": "Source simulator pilot; no KSP alignment or learned policy results",
+  "stability_window_s": 5.0,
+  "nominal_config": {
+    "vehicle": {
+      "gravity": 1.63,
+      "dry_mass": 1200.0,
+      "fuel_capacity": 600.0,
+      "max_thrust": 9000.0,
+      "main_isp": 310.0,
+      "inertia": [
+        1200.0,
+        1200.0,
+        800.0
+      ],
+      "rcs_torque": [
+        900.0,
+        900.0,
+        400.0
+      ],
+      "rcs_isp": 240.0,
+      "rcs_lever_arm": 1.4
+    },
+    "initial": {
+      "horizontal_position": 30.0,
+      "altitude": [
+        80.0,
+        120.0
+      ],
+      "horizontal_velocity": 2.0,
+      "vertical_velocity": [
+        -8.0,
+        -3.0
+      ],
+      "max_tilt_deg": 12.0,
+      "max_angular_speed": 0.05
+    },
+    "landing": {
+      "max_touchdown_speed": 2.0,
+      "max_tilt_deg": 10.0,
+      "max_angular_speed": 0.2,
+      "stability_time": 5.0,
+      "target_radius": 5.0,
+      "ground_friction": 0.8,
+      "ground_angular_damping": 8.0
+    },
+    "reward": {
+      "time_cost": 0.02,
+      "horizontal_cost": 0.01,
+      "speed_cost": 0.005,
+      "tilt_cost": 0.02,
+      "main_fuel_cost": 0.1,
+      "rcs_fuel_cost": 1.0,
+      "safe_bonus": 100.0,
+      "crash_cost": 100.0,
+      "abort_cost": 50.0
+    },
+    "control_dt": 0.1,
+    "physics_dt": 0.02,
+    "max_time": 90.0,
+    "max_horizontal_distance": 1000.0,
+    "max_altitude": 2000.0
+  },
+  "test_results": {
+    "simulator_tests_passed": 56,
+    "existing_repository_tests_passed": 8,
+    "local_python": "3.13.9"
+  },
+  "nominal": {
+    "schema_version": 1,
+    "controller": "scripted",
+    "split": "test",
+    "starts_sha256": "b4c5e5530cab39ecf729e22f27f796097e386cdfa6f9982efac8ddbbf2d7b20c",
+    "n_episodes": 100,
+    "safe_landing_rate": 1.0,
+    "crash_rate": 0.0,
+    "safe_in_target_rate": 1.0,
+    "status_counts": {
+      "safe_landing": 100
+    },
+    "transitions": 34122,
+    "wall_time_seconds": 15.26884135697037,
+    "mean_horizontal_error_safe": 1.2829261581073834,
+    "mean_main_fuel_used_safe": 31.023311607541544,
+    "mean_rcs_fuel_used_safe": 0.5301218316260218,
+    "mean_total_fuel_used_safe": 31.553433439167563,
+    "safe_landing_rate_wilson95": [
+      0.9630065017930143,
+      1.0
+    ]
+  },
+  "failure_checks": {
+    "zero": {
+      "n_episodes": 10,
+      "status_counts": {
+        "crash": 10
+      },
+      "starts_sha256": "da96f61e1c1056f94ffed3f096ce2488b7cc292903f0ec2667bbcc5de6fbe81e",
+      "safe_landing_rate": 0.0
+    },
+    "random": {
+      "n_episodes": 10,
+      "status_counts": {
+        "crash": 10
+      },
+      "starts_sha256": "da96f61e1c1056f94ffed3f096ce2488b7cc292903f0ec2667bbcc5de6fbe81e",
+      "safe_landing_rate": 0.0
+    }
+  },
+  "generalization": {
+    "unique_physical_conditions": 9,
+    "starts_per_condition": 10,
+    "scales": [
+      0.8,
+      1.0,
+      1.2
+    ],
+    "fixed_nominal_controller": true,
+    "runs": [
+      {
+        "parameter": "mass",
+        "scale": 0.8,
+        "n_episodes": 10,
+        "safe_landing_rate": 1.0,
+        "safe_in_target_rate": 1.0,
+        "status_counts": {
+          "safe_landing": 10
+        },
+        "starts_sha256": "09734b53c51cf9857dcf5764f8d997c6f50fc771473d4998c2b634a6bf9ac702",
+        "mean_total_fuel_used_safe": 32.56814590701513
+      },
+      {
+        "parameter": "mass",
+        "scale": 1.0,
+        "n_episodes": 10,
+        "safe_landing_rate": 1.0,
+        "safe_in_target_rate": 1.0,
+        "status_counts": {
+          "safe_landing": 10
+        },
+        "starts_sha256": "09734b53c51cf9857dcf5764f8d997c6f50fc771473d4998c2b634a6bf9ac702",
+        "mean_total_fuel_used_safe": 31.732872065409374
+      },
+      {
+        "parameter": "mass",
+        "scale": 1.2,
+        "n_episodes": 10,
+        "safe_landing_rate": 1.0,
+        "safe_in_target_rate": 1.0,
+        "status_counts": {
+          "safe_landing": 10
+        },
+        "starts_sha256": "09734b53c51cf9857dcf5764f8d997c6f50fc771473d4998c2b634a6bf9ac702",
+        "mean_total_fuel_used_safe": 32.85554297406355
+      },
+      {
+        "parameter": "inertia",
+        "scale": 0.8,
+        "n_episodes": 10,
+        "safe_landing_rate": 1.0,
+        "safe_in_target_rate": 1.0,
+        "status_counts": {
+          "safe_landing": 10
+        },
+        "starts_sha256": "09734b53c51cf9857dcf5764f8d997c6f50fc771473d4998c2b634a6bf9ac702",
+        "mean_total_fuel_used_safe": 31.61763550142798
+      },
+      {
+        "parameter": "inertia",
+        "scale": 1.0,
+        "n_episodes": 10,
+        "safe_landing_rate": 1.0,
+        "safe_in_target_rate": 1.0,
+        "status_counts": {
+          "safe_landing": 10
+        },
+        "starts_sha256": "09734b53c51cf9857dcf5764f8d997c6f50fc771473d4998c2b634a6bf9ac702",
+        "mean_total_fuel_used_safe": 31.732872065409374
+      },
+      {
+        "parameter": "inertia",
+        "scale": 1.2,
+        "n_episodes": 10,
+        "safe_landing_rate": 1.0,
+        "safe_in_target_rate": 1.0,
+        "status_counts": {
+          "safe_landing": 10
+        },
+        "starts_sha256": "09734b53c51cf9857dcf5764f8d997c6f50fc771473d4998c2b634a6bf9ac702",
+        "mean_total_fuel_used_safe": 31.85235561053445
+      },
+      {
+        "parameter": "thrust",
+        "scale": 0.8,
+        "n_episodes": 10,
+        "safe_landing_rate": 1.0,
+        "safe_in_target_rate": 1.0,
+        "status_counts": {
+          "safe_landing": 10
+        },
+        "starts_sha256": "09734b53c51cf9857dcf5764f8d997c6f50fc771473d4998c2b634a6bf9ac702",
+        "mean_total_fuel_used_safe": 26.696971945075575
+      },
+      {
+        "parameter": "thrust",
+        "scale": 1.0,
+        "n_episodes": 10,
+        "safe_landing_rate": 1.0,
+        "safe_in_target_rate": 1.0,
+        "status_counts": {
+          "safe_landing": 10
+        },
+        "starts_sha256": "09734b53c51cf9857dcf5764f8d997c6f50fc771473d4998c2b634a6bf9ac702",
+        "mean_total_fuel_used_safe": 31.732872065409374
+      },
+      {
+        "parameter": "thrust",
+        "scale": 1.2,
+        "n_episodes": 10,
+        "safe_landing_rate": 1.0,
+        "safe_in_target_rate": 1.0,
+        "status_counts": {
+          "safe_landing": 10
+        },
+        "starts_sha256": "09734b53c51cf9857dcf5764f8d997c6f50fc771473d4998c2b634a6bf9ac702",
+        "mean_total_fuel_used_safe": 38.147625495194134
+      },
+      {
+        "parameter": "gravity",
+        "scale": 0.8,
+        "n_episodes": 10,
+        "safe_landing_rate": 1.0,
+        "safe_in_target_rate": 1.0,
+        "status_counts": {
+          "safe_landing": 10
+        },
+        "starts_sha256": "09734b53c51cf9857dcf5764f8d997c6f50fc771473d4998c2b634a6bf9ac702",
+        "mean_total_fuel_used_safe": 32.563879305607195
+      },
+      {
+        "parameter": "gravity",
+        "scale": 1.0,
+        "n_episodes": 10,
+        "safe_landing_rate": 1.0,
+        "safe_in_target_rate": 1.0,
+        "status_counts": {
+          "safe_landing": 10
+        },
+        "starts_sha256": "09734b53c51cf9857dcf5764f8d997c6f50fc771473d4998c2b634a6bf9ac702",
+        "mean_total_fuel_used_safe": 31.732872065409374
+      },
+      {
+        "parameter": "gravity",
+        "scale": 1.2,
+        "n_episodes": 10,
+        "safe_landing_rate": 1.0,
+        "safe_in_target_rate": 1.0,
+        "status_counts": {
+          "safe_landing": 10
+        },
+        "starts_sha256": "09734b53c51cf9857dcf5764f8d997c6f50fc771473d4998c2b634a6bf9ac702",
+        "mean_total_fuel_used_safe": 32.72315954252455
+      }
+    ]
+  },
+  "benchmark": {
+    "steps": 2000,
+    "wall_time_seconds": 0.9151915367692709,
+    "transitions_per_second": 2185.3348940050573,
+    "simulated_seconds": 199.6829875913017,
+    "real_time_factor": 218.18710026122523,
+    "resets": 5,
+    "includes_controller": true,
+    "includes_rendering": false,
+    "python": "3.13.9",
+    "numpy": "2.4.6"
+  },
+  "demo": {
+    "status": "safe_landing",
+    "is_success": true,
+    "safe_in_target": true,
+    "time": 36.237898949049494,
+    "horizontal_error": 0.7374258511269561,
+    "main_fuel_used": 31.79000999637651,
+    "rcs_fuel_used": 0.5956257374565062,
+    "total_fuel_used": 32.38563573383302,
+    "touchdown": {
+      "speed": 0.691631969488278,
+      "vertical_speed": 0.6857809390234307,
+      "horizontal_speed": 0.08977351998432434,
+      "tilt_deg": 0.3466509758991669,
+      "angular_speed": 0.003502847559657319,
+      "horizontal_error": 0.7374258511269561,
+      "time": 31.237898949048837
+    },
+    "last_touchdown": {
+      "speed": 0.691631969488278,
+      "vertical_speed": 0.6857809390234307,
+      "horizontal_speed": 0.08977351998432434,
+      "tilt_deg": 0.3466509758991669,
+      "angular_speed": 0.003502847559657319,
+      "horizontal_error": 0.7374258511269561,
+      "time": 31.237898949048837
+    },
+    "touchdown_count": 1,
+    "stable_time": 5.0,
+    "return": 92.40743281320724,
+    "transitions": 363,
+    "terminated": true,
+    "truncated": false,
+    "wall_time_seconds": 0.17406257707625628,
+    "controller": "scripted"
+  },
+  "reproduce_command": "python examples/reproduce_acceptance.py",
+  "source_sha256": {
+    "src/mun_lander/__init__.py": "5b6c54f0218126509353cb7ff25c597a4a35368681403928bb61c04b0243c025",
+    "src/mun_lander/cli.py": "be1a5526e5ad42951b9048045a47375dee931faa5be5935361701e8439fa8bfb",
+    "src/mun_lander/config.py": "3a3bd7f892f36fb2cd33fdf96278010d45ded29ebdc45df3ce6e599ad9bb29c6",
+    "src/mun_lander/controller.py": "39bc192256ad203fd73ee266ef0d0d8518a7545d66ec510a7c85dd315a0405d8",
+    "src/mun_lander/env.py": "9e78b8b07a92f05947de80d06a4641fc46411851fdc2fac725e08700f685d677",
+    "src/mun_lander/evaluation.py": "c048b0e47e9fb6f5a9804c61d291aeea5c7521f4db51e1b75ad1b68cd49357db",
+    "src/mun_lander/math3d.py": "f871a65a070c0418bb99eaa01cf61fa2d2c895179b3b5a5e39ace1a7422dfa76",
+    "src/mun_lander/physics.py": "977225fe84de62c6eb3e653ac4166f2524c830a41e252b19d235dddbd65aea0d",
+    "src/mun_lander/reward.py": "c95695835b5687a7ffec1b1d308325094d05b2a545f84afd4ff0bf58c57592ba",
+    "src/mun_lander/state.py": "a4f6b47be205800d95c8ecfd30bb7de4d3f1cca925a7e6a182c0ee3665c8ac62",
+    "src/mun_lander/wrappers.py": "aa4176f9910ddcc51800f651eb26426f35e5773c37eec9ba6ee0e39f905f9e1a"
+  }
+}

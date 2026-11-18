@@ -1,7 +1,7 @@
 # KSP
 World Models for Lunar Landing in Kerbal Space Program
 
-世界模型课程项目，目标是在 **Mun 动力下降着陆**任务中研究预训练、想象中的策略更新和物理参数泛化。当前仓库记录 final proposal 的任务约定与实验协议，并完成环境准备和诊断工具整理；尚未实现着陆训练环境或训练算法。
+世界模型课程项目，目标是在 **Mun 动力下降着陆**任务中研究预训练、想象中的策略更新和物理参数泛化。仓库现已包含可独立运行的六自由度预训练模拟器、任务约定和 KSP 诊断工具；KSP 着陆环境对齐及世界模型/策略训练仍待完成。
 
 ## Proposal 对应的研究问题
 
@@ -13,6 +13,7 @@ World Models for Lunar Landing in Kerbal Space Program
 
 ## 已有内容
 
+- [六自由度着陆模拟器](simulator/README.md)：变质量动力学、RCS 姿态控制、Gymnasium 接口、脚本控制器、可复现初态与参数扫描；仓库版稳定窗口为 5 s。
 - KSP 1.12.5 + kRPC 0.7.0 的只读诊断、遥测记录及显式灯光控制测试。
 - Python 3.12–3.14 环境配置，固定版本的 NumPy、SciPy、Gymnasium、PyTorch、Matplotlib。
 - 完全离线的依赖、CPU/MPS 运算和本地插件文件检查。
@@ -20,15 +21,26 @@ World Models for Lunar Landing in Kerbal Space Program
 - 2×2 预训练/想象实验协议、RQ1–RQ3 评估口径、OOD 与数据预算规范。
 - GitHub Actions 运行不依赖游戏的诊断规则测试与语法检查。
 
-2026-11-06 已在本机验证发射台 RPC、连续遥测和可恢复灯光控制。2026-11-17 审阅 final proposal，并记录任务定性决策与实验协议。这些证据只覆盖程序控制链路和设计约定。**Mun 初始下降场景、可重复 reset/step、着陆判据、预训练与 RQ1–RQ3 实验仍待实现。** [验证记录](docs/validation.md) 分开列出本次与历史结果。
+2026-11-06 已在本机验证发射台 RPC、连续遥测和可恢复灯光控制；2026-11-17 记录 final proposal 的任务定性决策与实验协议。模拟器的独立验收见 [模拟器验证说明](simulator/docs/VALIDATION.md)，既有 KSP 证据见 [验证记录](docs/validation.md)。**Mun 初始下降场景、KSP 可重复 reset/step、实船安全阈值、两端接口校准、预训练与 RQ1–RQ3 实验仍待完成。** 模拟器的 pilot 数值没有填入共享任务配置中的 TBD；动作顺序、轴映射和精度指标差异见 [仓库接入说明](simulator/docs/REPOSITORY_INTEGRATION.md)。
 
 ## 快速开始
 
-先独立安装 KSP 和匹配版本的 kRPC，步骤见 [环境文档](docs/environment.md)。然后：
+模拟器可以离线运行，无需启动 KSP：
 
 ```sh
 git clone git@github.com:Aurora-on/KSP.git
-cd KSP
+cd KSP/simulator
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev,demo]'
+.venv/bin/python -m pytest -q
+.venv/bin/mun-lander demo --seed 7 --output artifacts/demo
+```
+
+运行 `.venv/bin/python examples/reproduce_acceptance.py` 可在本地重建验收数据与轨迹；这些输出写入被忽略的 `simulator/artifacts/`。仓库提供 [着陆动画](simulator/docs/assets/landing.gif)、[轨迹图](simulator/docs/assets/trajectory.png) 和 [验证摘要](simulator/docs/validation-summary.json)，不存放原始数据集、轨迹或机器测试日志。
+
+连接游戏前，先独立安装 KSP 和匹配版本的 kRPC，步骤见 [环境文档](docs/environment.md)。在仓库根目录执行：
+
+```sh
 bash scripts/bootstrap.sh
 ```
 
@@ -61,9 +73,10 @@ docs/          proposal 对照、任务契约、实验协议、环境要求、�
 requirements/  直接依赖、开发依赖、本机完整版本快照
 scripts/       环境安装、离线检查、游戏连接诊断、遥测
 tests/         不依赖 KSP 的检查规则测试
+simulator/     可独立安装的 6DOF 预训练模拟器、测试、接口文档与验收复现脚本
 ```
 
-生成的 `reports/`、数据、模型权重、虚拟环境和游戏文件均由 `.gitignore` 排除。原 proposal 与 final proposal 的 PPTX 留在本地 `downloads/proposals/`（已被 gitignore），只记录文字需求及源文件摘要。仓库不附带 KSP 游戏或第三方模组二进制。
+生成的 `reports/`、`simulator/artifacts/`、数据、模型权重、虚拟环境和游戏文件均由 `.gitignore` 排除。原 proposal 与 final proposal 的 PPTX 留在本地 `downloads/proposals/`（已被 gitignore），只记录文字需求及源文件摘要。仓库不附带 KSP 游戏或第三方模组二进制。
 
 ## 团队分工（初始）
 
@@ -82,4 +95,5 @@ tests/         不依赖 KSP 的检查规则测试
 - 观测、动作或数据格式变更时，先更新契约文档，再改代码。
 - 每两周按开发顺序中的验收节点做一次集成检查。
 
-下一步是补齐任务契约中的 TBD 数值、固定着陆器和 Mun 下降快照，再验收 `reset/step`；详见 [任务契约](docs/task-spec.md) 与 [开发顺序](docs/roadmap.md)。仓库尚未指定开源许可证。
+下一步是固定实船和 Mun 下降快照，记录 TBD 数值的决策，验收 KSP `reset/step`，并按共同转移数据校准模拟器；详见 [任务契约](docs/task-spec.md)、[开发顺序](docs/roadmap.md) 与 [仓库接入说明](simulator/docs/REPOSITORY_INTEGRATION.md)。仓库尚未指定开源许可证。
+

@@ -2,6 +2,8 @@
 
 The final proposal fixes the qualitative task and the 2x2 comparison. Numeric choices remain open. Do not start comparison runs until `docs/task-spec.md`, `docs/experiment-protocol.md` and `configs/mun_landing.toml` agree and no required numeric field is still `TBD`.
 
+The standalone 6DOF simulator is now available in [`simulator/`](../simulator/README.md), including a scripted controller, repeatable resets, tests and evaluation tools. Its repository default uses the agreed 5 s stability window. Other simulator numbers are pilot assumptions; they do not resolve the shared KSP task's open parameters. See the [integration record](../simulator/docs/REPOSITORY_INTEGRATION.md) for remaining action, coordinate and metric differences.
+
 ## 1. Freeze the task
 
 Choose the lander model and its mass/inertia/engine/RCS parameters, target coordinates, descent altitude, initial-state distribution, observation normalization, action scaling, control rate, episode horizon, touchdown thresholds and target radius. Fill the `TBD` values in `configs/mun_landing.toml` only after those decisions. Record actual craft parameters, the named save and snapshot hashes in a local asset manifest.
@@ -14,9 +16,11 @@ Implement named-save reset, fresh state readback and bounded tick stepping. Chec
 
 Acceptance requires a controlled descent scenario, not merely an active vessel at the Kerbin launchpad. A scripted controller must complete a landing under the frozen task contract before learning experiments begin. Infrastructure failures must be logged separately and handled consistently across methods.
 
-## 3. Build the pretraining simulator
+## 3. Align the available pretraining simulator
 
-Select or implement a rigid-body descent simulator with matching state/action definitions, variable mass, thrust, gravity and rotational dynamics. Compare one-step and short-rollout behavior with recorded KSP transitions before relying on transfer. A 3DOF point-mass prototype cannot answer inertia generalization.
+The implemented simulator provides variable-mass 6DOF rigid-body descent, main-engine thrust, gravity, RCS torque, fuel accounting and live post-contact stability dynamics. Independent acceptance and its limits are recorded in [`simulator/docs/VALIDATION.md`](../simulator/docs/VALIDATION.md). Run its local tests and scripted baseline while the KSP adapter is developed.
+
+Next, calibrate craft parameters, coordinate transformations, action axes/scales and control timing against the KSP adapter. The simulator's native action order is throttle first; the shared task lists RCS commands first, with unresolved axis semantics. Resolve that mapping explicitly, then compare one-step and short-rollout behavior with recorded KSP transitions before relying on transfer.
 
 Acceptance: the simulator and KSP adapter expose the same observation/action fields and timing semantics; one-step and short-rollout error thresholds are fixed before comparison; a held-out transition bank is available for validation.
 
@@ -38,9 +42,10 @@ Use at least three seeds and report safety, precision and propellant individuall
 
 | Workstream | Deliverable |
 | --- | --- |
-| Simulator | Fast 6DOF landing simulator with matching state/action definitions |
+| Simulator | Implemented fast 6DOF landing simulator; KSP parameter and interface alignment pending |
 | KSP integration | Telemetry, control and repeatable resets, plus a held-out transition bank |
 | World model and policy | Pretrained and adapted landing agent |
 | Evaluation and analysis | Learning curves, trajectories, performance comparison and generalization results |
 
-The repository has not implemented any of these yet. Dataset sizes, thresholds, seed count, model architecture and compute budget remain open; no results are claimed.
+Simulator implementation and source-domain engineering validation are available. KSP landing integration, world-model/policy training and RQ1–RQ3 comparison runs remain pending. Dataset sizes, physical thresholds, exact training seed count (at least three), model architecture and compute budget remain open. Source-domain scripted results do not establish KSP transfer or learning performance; keep existing task/protocol decision records and dataset split commitments unchanged until the team records an explicit revision.
+
