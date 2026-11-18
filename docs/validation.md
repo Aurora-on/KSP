@@ -1,5 +1,45 @@
 # Validation record
 
+## 2026-11-18: Windows/WSL2 live transport and adapter skeleton
+
+The current host is Windows 11 Pro with WSL2. KSP 1.12.5 (build 03190) runs on
+Windows from the Steam installation; Python 3.14.4 runs in WSL2. kRPC 0.7.0
+server and ModuleManager 4.2.3 were installed into the game's `GameData` and
+verified against the official ZIP SHA-256 `cd4f062e...8bf028`.
+
+- WSL2 mirrored networking reached Windows `127.0.0.1`; no port proxy was used.
+- `scripts/doctor.py` passed: RPC/stream ports, kRPC 0.7.0 handshake, required
+  services, Flight scene, 17 celestial bodies, 5 Hz UT stream and advancing
+  simulation time.
+- `scripts/telemetry.py` recorded 50 rows over 10 s with finite numeric fields
+  and advancing UT while the vessel was on the Kerbin launchpad.
+- `scripts/doctor.py --control-test` passed with
+  `lights False -> True -> False`; the original state was restored.
+- The adapter skeleton in `ksp_env/` connects and reads diagnostic telemetry.
+  `configs/ksp_adapter_test.toml` was added for live adapter mechanics on the
+  Kerbin launchpad. Its `observe()` path was verified with a target-relative
+  Kerbin frame. A live mechanical reset and one zero-action step also passed:
+  `SpaceCenter.load("persistent")` advanced `game_state_loads`, the Flight
+  scene was reacquired, and the step advanced UT by one 0.02 s physics tick
+  with `terminated=False`, `truncated=False` and `episode_evaluated=False`.
+  These are adapter mechanics only, not task validation. Live reset and step
+  used `KSP_LIVE_RESET_STEP=1` and remain opt-in.
+- kRPC's `SpaceCenter.load` takes the save file name inside the current save
+  folder (for example `persistent`), not the folder name.
+- Task observation, reset and step remain blocked by unresolved `TBD`
+  target/frame/fuel/RCS decisions in the normative config; no landing was
+  validated.
+- kRPC 0.7 streams only send when a value changes. A constant mass on the
+  launchpad updates once, so stream age is not a liveness signal.
+- Offline `compileall` and unit tests passed, including the fake-transport step
+  sequencing tests when the kRPC client is installed; the opt-in live smoke
+  test passed separately with KSP running. The live test is gated by
+  `KSP_LIVE=1` and is not part of CI.
+
+These results establish the Windows/WSL2 transport and diagnostic layer only.
+The Mun descent scenario, deterministic reset/step, landing criteria and all
+learning experiments remain unimplemented.
+
 ## 2026-11-17: final proposal review
 
 Reviewed the nine-slide `KSP_World_Model_Proposal_final.pptx` and recorded its qualitative decisions in [`task-spec.md`](task-spec.md), [`experiment-protocol.md`](experiment-protocol.md), [`proposal.md`](proposal.md) and `configs/mun_landing.toml`.

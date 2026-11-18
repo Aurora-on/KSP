@@ -38,7 +38,7 @@ Do not claim results that are not recorded in `docs/validation.md`.
 Run these before committing code or configuration changes:
 
 ```sh
-python3 -m compileall -q scripts tests
+python3 -m compileall -q ksp_env scripts tests
 python3 -m unittest discover -s tests -v
 ```
 

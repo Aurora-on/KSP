@@ -12,6 +12,8 @@ Acceptance: the task contract has no `TBD` in fields required to run; every nume
 
 Implement named-save reset, fresh state readback and bounded tick stepping. Check repeated resets against tolerances and actual UT increments against the intended action interval. Test episode termination, timeout truncation and connection failure separately. Keep a small held-out bank of Mun descent initial conditions.
 
+The importable adapter skeleton is in `ksp_env/` (see [`ksp-env.md`](ksp-env.md)); diagnostics remain in `scripts/`. Connection and read-only diagnostics are validated. Observation, reset and step are gated by the unresolved target/frame/fuel/RCS decisions and are not yet validated.
+
 Acceptance requires a controlled descent scenario, not merely an active vessel at the Kerbin launchpad. A scripted controller must complete a landing under the frozen task contract before learning experiments begin. Infrastructure failures must be logged separately and handled consistently across methods.
 
 ## 3. Build the pretraining simulator

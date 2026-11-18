@@ -15,9 +15,9 @@
 | Matplotlib | 3.11.2 | Offline learning curves and landing-error plots |
 | pytest | 9.2.0 | Offline diagnostic tests |
 
-Direct versions are pinned in `requirements/runtime.txt`; `requirements/macos-arm64-py314.lock.txt` captures the tested local environment including transitive dependencies. This lock is a local snapshot, not a verified CUDA/Linux lock.
+Direct versions are pinned in `requirements/runtime.txt`; `requirements/macos-arm64-py314.lock.txt` is a historical local snapshot, not the current host lock. KSP-interface work uses `krpc`/`protobuf`; `numpy`, `gymnasium` and `matplotlib` are installed for later observation, wrapper and plotting work. PyTorch and SciPy are only needed for model work.
 
-The current development machine is an Apple M5 with 16 GiB unified memory. KSP runs as x86_64 through Rosetta; Python runs natively as arm64 and communicates over TCP. CPU is the functional baseline, with MPS checked as an optional local accelerator. Full training throughput and memory requirements depend on the model and batch sizes, which remain open. A CUDA machine can be considered for larger experiments; CUDA is not required for the current local preparation.
+The current development host is Windows 11 Pro with WSL2. KSP 1.12.5 runs natively on Windows; Python 3.14.4 runs in WSL2 and reaches the kRPC server over TCP. WSL2 uses mirrored networking with `hostAddressLoopback=true`, so `127.0.0.1:50000/50001` in WSL2 reaches the Windows loopback interface. If that setting changes, bind kRPC to the Windows LAN address instead and pass it with `--address`. CPU is the functional baseline; training hardware remains open.
 
 ## Installation
 
@@ -27,7 +27,16 @@ On macOS/Linux with an appropriate Python installed:
 bash scripts/bootstrap.sh
 ```
 
-On Windows, create a venv with `py -3.14 -m venv .venv`, then use `.venv\Scripts\python.exe -m pip install -r requirements/dev.txt`. Windows has not been tested by this repository.
+The current WSL2 host does not provide `ensurepip`, so use `uv` for the
+KSP-interface-only environment:
+
+```sh
+uv venv --python 3.14 .venv
+uv pip install --python .venv/bin/python \
+  krpc==0.7.0 protobuf==7.36.2 numpy==2.5.4 gymnasium==1.4.0 matplotlib==3.11.2
+```
+
+Native Windows Python is not used by this repository.
 
 Install KSP through its normal distribution. Download the [official kRPC 0.7.0 release](https://github.com/krpc/krpc/releases/tag/v0.7.0), verify the release digest, then merge its `GameData` into the KSP game directory while the game is closed. Preserve any existing settings and avoid duplicate ModuleManager versions. Do not commit the game, DLLs, saves or craft assets.
 
@@ -37,16 +46,21 @@ Known official ZIP SHA-256:
 cd4f062eaea6b74eff68a3be2dc3958a0f9373bafc2c9daee08aed6b988bf028
 ```
 
-Use the kRPC server window to bind only `127.0.0.1`, RPC port `50000`, stream port `50001`. Load a save before connecting. The installed local setup already starts the service automatically inside a save. The main menu has no server. No global Mono/.NET installation, CKAN or kOS is required for this Python interface.
+On a fresh kRPC 0.7 install the server list is empty. Load a save, open the
+kRPC window, click **Add server** (the default is `Protobuf over TCP`,
+`127.0.0.1`, RPC `50000`, stream `50001`), then click **Start server**. Enable
+auto-start and auto-accept if desired; the main menu has no server. No global
+Mono/.NET installation, CKAN or kOS is required for this Python interface.
 
-To include local plugin-file checks, provide the game root (the directory containing `GameData`), not the macOS app bundle:
+To include local plugin-file checks, provide the game root (the directory containing `GameData`). In WSL2, the game installed under `E:\` appears at `/mnt/e/`:
 
 ```sh
-export KSP_PATH="/path/to/Kerbal Space Program"
+export KSP_PATH="/mnt/e/Program Files/Steam/steamapps/common/Kerbal Space Program"
 .venv/bin/python scripts/check_environment.py --require-ksp --output reports/environment.json
 ```
 
-`KSP_PATH` is used only by the offline file check. The live doctor uses explicit address/port flags. There is no automatic `.env` loading.
+`KSP_PATH` is used only by the offline file check. The live doctor and
+`ksp_env` use the configured address/port. There is no automatic `.env` loading.
 
 ## Requirements for a valid Mun landing environment
 
@@ -66,9 +80,11 @@ Debug APIs may help build/reset scenarios. Freeze the intended physical variant 
 | Check | Status |
 | --- | --- |
 | KSP startup, loopback RPC and streams | Passed on 2026-11-06 |
+| Windows 11 + WSL2 loopback to kRPC 0.7.0 | Passed on 2026-11-18 |
 | API deployment of stock-derived test craft to Kerbin launchpad | Passed on 2026-11-06 |
-| 10 s / 50 telemetry samples; lights toggle/readback/restoration | Passed on 2026-11-06 |
-| Current scientific Python imports and computation | See `validation.md` for the new check |
+| 10 s / 50 telemetry samples; lights toggle/readback/restoration | Passed on 2026-11-06 and 2026-11-18 |
+| Current scientific Python imports and computation | See `validation.md`; full training stack not installed on the current host |
+| Importable adapter (`ksp_env/`) | Connection, config and read-only diagnostics implemented; observation/reset/step gated by TBD |
 | Final-proposal task contract (qualitative) | Adopted 2026-11-17; numeric thresholds and implementation open |
 | Numeric thresholds, initial-state distributions and target | Not fixed |
 | Mun descent snapshot and lander | Not prepared |
@@ -76,7 +92,9 @@ Debug APIs may help build/reset scenarios. Freeze the intended physical variant 
 | 2x2 pretraining/imagination comparison | Protocol defined; not implemented or run |
 | Pretraining, world model, policy training, RQ1–RQ3 | Not implemented or run |
 
-The 2026-11-06 launchpad evidence establishes the control transport, not task-level lunar-landing readiness. KSP is not automatically launched by offline setup or CI.
+The 2026-11-06 and 2026-11-18 launchpad evidence establishes the control
+transport, not task-level lunar-landing readiness. KSP is not automatically
+launched by offline setup or CI.
 
 ## Primary sources
 

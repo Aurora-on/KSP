@@ -34,9 +34,14 @@ class TaskConfigTests(unittest.TestCase):
 
     def test_unresolved_numbers_remain_explicitly_tbd(self):
         self.assertEqual(self.config["scenario"]["control_hz"], "TBD")
+        self.assertEqual(self.config["scenario"]["save_name"], "TBD")
         self.assertEqual(self.config["safety"]["max_touchdown_speed_m_s"], "TBD")
         self.assertEqual(self.config["evaluation"]["ood_ranges"], "TBD")
         self.assertEqual(self.config["observation"]["normalization"], "TBD")
+        self.assertEqual(self.config["observation"]["main_engine_fuel_resource"], "TBD")
+
+    def test_step_api_is_gymnasium_compatible_core(self):
+        self.assertEqual(self.config["implementation"]["step_api"], "gymnasium_compatible_core")
 
 
 if __name__ == "__main__":
