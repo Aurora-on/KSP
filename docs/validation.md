@@ -1,5 +1,70 @@
 # Validation record
 
+## 2026-11-18: Windows/WSL2 live transport and adapter skeleton
+
+The current host is Windows 11 Pro with WSL2. KSP 1.12.5 (build 03190) runs on
+Windows from the Steam installation; Python 3.14.4 runs in WSL2. kRPC 0.7.0
+server and ModuleManager 4.2.3 were installed into the game's `GameData` and
+verified against the official ZIP SHA-256 `cd4f062e...8bf028`.
+
+- WSL2 mirrored networking reached Windows `127.0.0.1`; no port proxy was used.
+- `scripts/doctor.py` passed: RPC/stream ports, kRPC 0.7.0 handshake, required
+  services, Flight scene, 17 celestial bodies, 5 Hz UT stream and advancing
+  simulation time.
+- `scripts/telemetry.py` recorded 50 rows over 10 s with finite numeric fields
+  and advancing UT while the vessel was on the Kerbin launchpad.
+- `scripts/doctor.py --control-test` passed with
+  `lights False -> True -> False`; the original state was restored.
+- The adapter skeleton in `ksp_env/` connects and reads diagnostic telemetry.
+  `configs/ksp_adapter_test.toml` was added for live adapter mechanics on the
+  Kerbin launchpad. Its `observe()` path was verified with a target-relative
+  Kerbin frame. A live mechanical reset and one zero-action step also passed:
+  `SpaceCenter.load("persistent")` advanced `game_state_loads`, the Flight
+  scene was reacquired, and the step advanced UT by one 0.02 s physics tick
+  with `terminated=False`, `truncated=False` and `episode_evaluated=False`.
+  These are adapter mechanics only, not task validation. Live reset and step
+  used `KSP_LIVE_RESET_STEP=1` and remain opt-in.
+- kRPC's `SpaceCenter.load` takes the save file name inside the current save
+  folder (for example `persistent` or `Mun landing 1`), not the folder name.
+- The new `configs/ksp_mun_test.toml` profile was exercised against
+  `Mun landing 1`. `reset()` returned the `两级着陆器` in Flight with UT 367.78
+  and `game_state_loads=15`; one zero-action step advanced UT by 0.02 s with
+  `terminated=False`, `truncated=False` and `episode_evaluated=False`. This is
+  adapter mechanics on a Mun orbit test target, not a landing.
+- `scripts/probe_controls.py` was first run with `--execute --stage-once` on the
+  pre-stage save. The saved state had current stage 3 and no active engine; one
+  stage activation changed stage `3 -> 2` and active engines `0 -> 4`. A 0.05
+  throttle pulse produced a peak of 12,000 N thrust and consumed 0.3545 kg of
+  propellant; thrust returned to zero after the one-tick throttle lag.
+- After `Mun landing 1.sfs` was overwritten with the stage-2 state, a second
+  probe ran without staging. RCS pitch/yaw/roll pulses produced peak angular
+  speeds of 0.006873/0.006753/0.006312 rad/s and residual rates around
+  0.00027 rad/s after the counter-pulse. Monopropellant consumption was
+  0.02013/0.02013/0.01699 units per axis, total 0.05725 units.
+- Throttle was zeroed and control toggles were restored after both probes;
+  staging is not reversible, so the live session remains at stage 2 with four
+  active engines. This control-response run is mechanical evidence only; no
+  Mun landing or task-level threshold was validated.
+- After the probe, `Mun landing 1.sfs` was overwritten from the live game with
+  current stage 2 and four active `liquidEngine3.v2` engines. A fresh
+  `reset()` on that save returned stage 2, active engines `4 / 9`, throttle 0
+  and 450 LiquidFuel. The test profile target was updated to the new saved
+  sub-satellite longitude `139.70616`. This makes the save usable for
+  reset/step mechanics, but it is still a test state, not a frozen task.
+- Task observation, reset and step remain blocked by unresolved `TBD`
+  target/frame/fuel/RCS decisions in the normative config; no landing was
+  validated.
+- kRPC 0.7 streams only send when a value changes. A constant mass on the
+  launchpad updates once, so stream age is not a liveness signal.
+- Offline `compileall` and unit tests passed, including the fake-transport step
+  sequencing tests when the kRPC client is installed; the opt-in live smoke
+  test passed separately with KSP running. The live test is gated by
+  `KSP_LIVE=1` and is not part of CI.
+
+These results establish the Windows/WSL2 transport and diagnostic layer only.
+The Mun descent scenario, deterministic reset/step, landing criteria and all
+learning experiments remain unimplemented.
+
 ## 2026-11-17: final proposal review
 
 Reviewed the nine-slide `KSP_World_Model_Proposal_final.pptx` and recorded its qualitative decisions in [`task-spec.md`](task-spec.md), [`experiment-protocol.md`](experiment-protocol.md), [`proposal.md`](proposal.md) and `configs/mun_landing.toml`.

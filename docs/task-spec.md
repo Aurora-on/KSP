@@ -29,6 +29,8 @@ The policy consumes numeric telemetry, not images:
 
 All values use SI units unless degrees are explicitly named. Frame transformations MUST be explicit and shared by both environments. Whether vehicle mass and inertia are observed, or only used to condition OOD evaluation, is **TBD**; RQ3 requires the decision to be recorded before training.
 
+Implementation note: the adapter reads a named main-engine propellant resource; the resource name, unit and normalization remain **TBD** until the lander is fixed. kRPC returns attitude quaternions as `(x, y, z, w)` and angular velocity in rad/s; adopting that order and frame must be recorded with the convention decision.
+
 Do not hide an autopilot or attitude controller inside the environment. If one is used, it changes the task dynamics and MUST be documented as part of the action interface.
 
 ## 3. Action contract
@@ -47,6 +49,8 @@ Do not hide an autopilot or attitude controller inside the environment. If one i
 - Record the actual universal-time delta for every step and compare it with the intended action interval.
 - Do not wait for streams while holding a tick. Use measured timing to detect hold timeouts.
 - Return Gymnasium-style `terminated` for task outcomes and `truncated` for time limits. Connection, reset and tick failures are infrastructure errors, not successful or failed landings.
+
+Implementation note: the core adapter uses Gymnasium-compatible `terminated`/`truncated` semantics but does not depend on the `gymnasium` package. A `gym.Env` wrapper is deferred until the reward, observation space and action space are fixed.
 
 ## 5. Safety, precision and failure
 
