@@ -37,6 +37,22 @@ def test_manifest_rejects_changed_initial_state_and_duplicate_ids():
     duplicate["starts"][1]["id"] = duplicate["starts"][0]["id"]
     with pytest.raises(ValueError, match="duplicate"):
         evaluation.validate_manifest(duplicate)
+    unsigned = copy.deepcopy(manifest)
+    del unsigned["sha256"]
+    with pytest.raises(ValueError, match="missing sha256"):
+        evaluation.validate_manifest(unsigned)
+
+
+def test_evaluate_rejects_manifest_from_a_different_configuration():
+    manifest = evaluation.generate_initial_states(SimConfig(), count=2, split="test")
+    wider = replace(SimConfig(), initial=replace(SimConfig().initial, horizontal_position=40.0))
+    with pytest.raises(ValueError, match="initial_config"):
+        evaluation.evaluate(wider, manifest)
+    heavier = replace(SimConfig(), vehicle=replace(SimConfig().vehicle, fuel_capacity=700.0))
+    with pytest.raises(ValueError, match="fuel_capacity"):
+        evaluation.evaluate(heavier, manifest)
+    # Physical OOD parameters do not change the start distribution or capacity.
+    evaluation.evaluate(SimConfig().perturbed("mass", 1.2), manifest, controller="zero")
 
 
 def test_no_safe_landings_produce_undefined_conditional_means():
@@ -47,7 +63,7 @@ def test_no_safe_landings_produce_undefined_conditional_means():
     assert summary["safe_landing_rate"] == summary["safe_in_target_rate"] == 0
     assert summary["status_counts"] == {"timeout": 2}
     assert summary["crash_rate"] == 0  # A timeout is a failure, not a collision.
-    for field in ("horizontal_error", "main_fuel_used", "rcs_fuel_used", "total_fuel_used"):
+    for field in ("landing_error", "main_fuel_used", "rcs_fuel_used", "total_fuel_used"):
         assert summary[f"mean_{field}_safe"] is None
     lo, hi = summary["safe_landing_rate_wilson95"]
     assert 0 <= lo < hi <= 1

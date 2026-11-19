@@ -12,7 +12,7 @@
 
 ## 安装与快速运行
 
-需要 Python 3.10 或更新版本。从仓库根目录进入 `simulator/` 后执行：
+需要 Python 3.12–3.14。从仓库根目录进入 `simulator/` 后执行：
 
 ```bash
 python -m venv .venv
@@ -55,6 +55,15 @@ python examples/reproduce_acceptance.py
 
 该脚本使用当前 5 s 配置生成本地初态清单、逐次评估、参数扫描、轨迹、动画与性能记录，输出位于被 gitignore 的 `artifacts/`。原始数据集、轨迹和机器测试日志不随仓库上传；版本库只保留文档、演示图片/动画和验证摘要。
 
+重建或校验 [验证摘要](docs/validation-summary.json)：
+
+```bash
+python examples/build_validation_summary.py           # 重跑摘要并记录源码与初态清单哈希
+python examples/build_validation_summary.py --check   # 只校验现有摘要，不写入
+```
+
+`--check` 会比对源码哈希，并在 NumPy 版本一致时按记录的 seed、数量与 split 重新生成初态清单、比对清单哈希。
+
 也可分别运行：
 
 ```bash
@@ -76,7 +85,7 @@ mun-lander benchmark --steps 2000 --output artifacts/benchmark.json
 | 模型和 policy | 14 维状态观测、4 维连续动作、奖励分项、终止语义、固定初态、可保存恢复环境状态 | 接入 replay、世界模型/SAC/Dreamer、训练及学习曲线 |
 | KSP 适配 | 单位与坐标契约、共享奖励函数、着陆阈值和评估字段 | 实测飞行器质量/惯量/推力/RCS、遥测变换、动作轴映射、游戏存档重置、损伤判定 |
 
-详细约定见 [接口说明](docs/INTERFACES.md)，方程与接触近似见 [物理模型](docs/PHYSICS.md)。本模拟器 pilot 安全阈值为触地总速度 ≤ 2 m/s、倾角 ≤ 10°、角速度模 ≤ 0.2 rad/s，并连续稳定 5 s。除已确定的 5 s 窗口外，这些数值没有替代共享 KSP 配置中的 TBD。模拟器的 `safe_in_target_rate` 要求安全且位于 5 m 目标范围内，和仓库任务契约允许包含不安全试验的 `precision_rate` 不同。
+详细约定见 [接口说明](docs/INTERFACES.md)，方程与接触近似见 [物理模型](docs/PHYSICS.md)。本模拟器 pilot 安全阈值为触地总速度 ≤ 2 m/s、倾角 ≤ 10°、角速度模 ≤ 0.2 rad/s，并连续稳定 5 s。除已确定的 5 s 窗口外，这些数值没有替代共享 KSP 配置中的 TBD。模拟器的 `safe_in_target_rate` 要求安全且**首次触地**位于 5 m 目标范围内；稳定窗口内的地面滑行不会改变这一定义。它和仓库任务契约允许包含不安全试验、且采样时刻另行决定的 `precision_rate` 不同，两者不能互相改名。
 
 ## 文件结构
 
@@ -91,8 +100,9 @@ mun-lander benchmark --steps 2000 --output artifacts/benchmark.json
 | `configs/nominal.json` | 默认实验配置 |
 | `tests/` | 解析物理检查、状态恢复、终止判定与接口检查 |
 | `docs/assets/` | 随仓库提供的着陆动画与轨迹图 |
-| `docs/validation-summary.json` | 当前仓库配置的紧凑验证摘要 |
-| `examples/reproduce_acceptance.py` | 在本地重建验收证据 |
+| `docs/validation-summary.json` | 当前仓库配置的紧凑验证摘要（schema 2，哈希可校验） |
+| `examples/reproduce_acceptance.py` | 在本地重建验收轨迹、动画与逐次结果 |
+| `examples/build_validation_summary.py` | 重建或校验验证摘要与源码/初态清单哈希 |
 | `artifacts/` | 本地生成的数据、评估结果和轨迹；不纳入 Git |
 
 ## 已知范围

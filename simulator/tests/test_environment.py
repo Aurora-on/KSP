@@ -87,8 +87,29 @@ def test_safe_landing_requires_window_and_precision_is_separate():
     assert info["stable_time"] >= env.config.landing.stability_time - 1e-9
     assert info["time"] - info["touchdown"]["time"] >= env.config.landing.stability_time - 1e-9
     assert info["horizontal_error"] == pytest.approx(10.0)
+    assert info["landing_error"] == pytest.approx(10.0)
     assert info["total_fuel_used"] == pytest.approx(info["main_fuel_used"] + info["rcs_fuel_used"])
     assert "episode" in info
+
+
+@pytest.mark.parametrize("start_x,start_vx,landed_inside", [
+    (4.88, 1.9, True),    # Lands at ~4.90 m and slides out past the radius.
+    (5.12, -1.9, False),  # Lands at ~5.10 m and slides in past the radius.
+])
+def test_safe_in_target_uses_touchdown_position_not_final_slide(start_x, start_vx, landed_inside):
+    env = LanderEnv()
+    reset_at(env, position=[start_x, 0, 0.001], velocity=[start_vx, 0, -0.1])
+    _, _, terminated, truncated, info = env.step(np.zeros(4))
+    assert not terminated and not truncated
+    for _ in range(100):
+        _, _, terminated, truncated, info = env.step(np.zeros(4))
+        if terminated or truncated:
+            break
+    assert terminated and info["status"] == "safe_landing"
+    radius = env.config.landing.target_radius
+    assert (info["landing_error"] <= radius) == landed_inside
+    assert (info["horizontal_error"] <= radius) != landed_inside
+    assert info["safe_in_target"] == landed_inside
 
 
 def test_contact_window_keeps_dynamics_active():

@@ -6,7 +6,6 @@ __pycache__/
 build/
 dist/
 
-
 # Local generated trajectories, evaluation datasets and machine-specific logs.
 artifacts/
 reports/

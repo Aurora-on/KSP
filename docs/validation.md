@@ -1,5 +1,15 @@
 # Validation record
 
+## 2026-11-19: standalone 6DOF simulator source-domain acceptance
+
+The `simulator/` module was re-run with the pinned `simulator/requirements-tested.txt` stack (Python 3.14.4, NumPy 2.4.6, Gymnasium 1.4.0). Per-check detail is in [`simulator/docs/VALIDATION.md`](../simulator/docs/VALIDATION.md); the machine-readable record is [`simulator/docs/validation-summary.json`](../simulator/docs/validation-summary.json).
+
+- 62 simulator tests and the 8 existing offline tests pass.
+- 100/100 scripted landings are safe on the agreed 5 s window; mean first-touchdown error is 1.283 m; the Wilson 95% safe-landing interval is 96.30%-100%.
+- Zero-action and random-action baselines crash 10/10; 9 one-axis physical conditions (mass, inertia, thrust, gravity at 0.8/1.0/1.2) over 10 generalization starts all land safely inside 5 m.
+- The summary was rebuilt as schema 2 and now records dependency versions plus source and start-manifest hashes; `python examples/build_validation_summary.py --check` verifies them. Manifest hashes in the earlier summary were not reproducible from the committed code and were regenerated.
+- This is source-domain engineering evidence with a scripted controller. It does not validate KSP reset/step, real craft parameters, shared safety thresholds, cross-environment alignment, transfer, training or RQ1-RQ3. All `TBD` values and readiness flags in `configs/mun_landing.toml` are unchanged.
+
 ## 2026-11-18: Windows/WSL2 live transport and adapter skeleton
 
 The current host is Windows 11 Pro with WSL2. KSP 1.12.5 (build 03190) runs on

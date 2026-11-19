@@ -229,9 +229,13 @@ class LanderEnv(gym.Env):
         s = self.state
         main_used = max(0.0, self.initial_fuel-s.fuel)
         error = float(np.linalg.norm(s.position[:2]))
+        # Precision is judged where the craft first touched down, not where
+        # residual ground sliding leaves it at the end of the stability window.
+        landing_error = self.touchdown["horizontal_error"] if self.touchdown is not None else None
         info = {"time": self.time, "dt": dt, "status": self.status,
                 "is_success": self.status == "safe_landing",
-                "safe_in_target": self.status == "safe_landing" and error <= self.config.landing.target_radius,
+                "safe_in_target": (self.status == "safe_landing" and landing_error is not None
+                                   and landing_error <= self.config.landing.target_radius),
                 "horizontal_error": error, "main_fuel_used": main_used,
                 "rcs_fuel_used": self.rcs_fuel_used, "total_fuel_used": main_used+self.rcs_fuel_used,
                 "mass": self.config.vehicle.dry_mass+s.fuel,
@@ -245,6 +249,7 @@ class LanderEnv(gym.Env):
         if self.touchdown is not None:
             info["touchdown"] = copy.deepcopy(self.touchdown)
             info["last_touchdown"] = copy.deepcopy(self.last_touchdown)
+            info["landing_error"] = landing_error
         if self._done:
             info["episode"] = {**copy.deepcopy(info), "return": self.episode_return, "length": self.steps}
         return info

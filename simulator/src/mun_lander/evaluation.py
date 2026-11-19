@@ -62,14 +62,28 @@ def generate_initial_states(config: SimConfig, count: int = 30, seed: int = 2026
 def validate_manifest(manifest: dict) -> None:
     if manifest.get("schema_version") != 1 or not manifest.get("starts"):
         raise ValueError("Expected nonempty initial-state manifest schema_version=1")
+    for key in ("sha256", "initial_config", "fuel_capacity", "split", "seed"):
+        if key not in manifest:
+            raise ValueError(f"Initial-state manifest is missing {key}; regenerate it")
     ids = [entry["id"] for entry in manifest["starts"]]
     if len(ids) != len(set(ids)):
         raise ValueError("Manifest contains duplicate start IDs")
-    if "sha256" in manifest:
-        payload = {k: v for k, v in manifest.items() if k != "sha256"}
-        actual = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-        if actual != manifest["sha256"]:
-            raise ValueError("Initial-state manifest checksum mismatch")
+    payload = {k: v for k, v in manifest.items() if k != "sha256"}
+    actual = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    if actual != manifest["sha256"]:
+        raise ValueError("Initial-state manifest checksum mismatch")
+
+
+def _require_matching_config(config: SimConfig, manifest: dict) -> None:
+    """Reject starts generated from a different distribution or fuel capacity.
+
+    Physical OOD parameters (mass, inertia, thrust, gravity) are deliberately
+    not compared, so a nominal manifest can drive a parameter sweep.
+    """
+    if manifest["initial_config"] != _jsonable(asdict(config.initial)):
+        raise ValueError("manifest initial_config does not match the evaluation config")
+    if manifest["fuel_capacity"] != config.vehicle.fuel_capacity:
+        raise ValueError("manifest fuel_capacity does not match the evaluation config")
 
 
 def rollout(config: SimConfig, initial_state: dict | None = None, seed: int = 7,
@@ -120,6 +134,7 @@ def rollout(config: SimConfig, initial_state: dict | None = None, seed: int = 7,
     elapsed = time.perf_counter() - start
     result = {key: info[key] for key in ["status", "is_success", "safe_in_target", "time",
               "horizontal_error", "main_fuel_used", "rcs_fuel_used", "total_fuel_used"]}
+    result["landing_error"] = info.get("landing_error")
     result.update({"touchdown": info.get("touchdown"), "last_touchdown": info.get("last_touchdown"),
                    "touchdown_count": info.get("touchdown_count", 0), "stable_time": info["stable_time"]})
     result.update({"return": float(total_return), "transitions": transitions,
@@ -141,6 +156,7 @@ def rollout(config: SimConfig, initial_state: dict | None = None, seed: int = 7,
 def evaluate(config: SimConfig, manifest: dict, controller: str | Callable = "scripted",
              controller_config: SimConfig | None = None) -> dict:
     validate_manifest(manifest)
+    _require_matching_config(config, manifest)
     episodes = []
     start = time.perf_counter()
     for entry in manifest["starts"]:
@@ -160,8 +176,9 @@ def evaluate(config: SimConfig, manifest: dict, controller: str | Callable = "sc
                "transitions": sum(e["transitions"] for e in episodes),
                "wall_time_seconds": time.perf_counter() - start,
                "episodes": episodes}
-    for field in ("horizontal_error", "main_fuel_used", "rcs_fuel_used", "total_fuel_used"):
-        summary[f"mean_{field}_safe"] = float(np.mean([e[field] for e in safe])) if safe else None
+    for field in ("landing_error", "main_fuel_used", "rcs_fuel_used", "total_fuel_used"):
+        summary[f"mean_{field}_safe"] = (float(np.mean([e[field] for e in safe]))
+                                         if safe and all(e[field] is not None for e in safe) else None)
     # Wilson 95% interval states sampling uncertainty without hiding trial count.
     p, n, z = summary["safe_landing_rate"], count, 1.959963984540054
     center = (p + z*z/(2*n)) / (1 + z*z/n)

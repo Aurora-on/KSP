@@ -38,6 +38,8 @@ dm_RCS/dt = (|τ_x| + |τ_y| + |τ_z|) / (l Isp_RCS g0)
 
 这是集总接触近似，没有真实支腿几何、质心高度导致的支撑多边形失稳、结构弹性、弹跳、逐部件碰撞或损伤模型。这里的无损伤由接触阈值近似，KSP 评估必须另检查实际部件损坏。稳定结果用于源域接口验证，不证明真实飞行器不会倾覆。
 
+稳定窗口内仍按同一速度/倾角/角速度阈值检查当前状态：窗口内任一物理子步超限都判 `crash`，不是只在首次触地时检查一次。因此持续的姿态控制或点火必须把状态保持在阈值内，否则即使初触安全也不会得到 `safe_landing`。
+
 ## 默认值与初态
 
 | 项目 | 默认值 |
@@ -76,6 +78,6 @@ r_terminal = +100：安全着陆
 
 测试用自由落体解析解、变质量火箭方程、提前燃尽冲量、单轴力矩、无外力矩角动量/动能守恒检查物理实现，并检查坐标、单位四元数、可复现 reset/checkpoint、首次接触及稳定窗口、失败原因和 Gymnasium 契约。脚本控制器演示验证完整调用链；其成功率仅适用于对应配置和初态清单。
 
-仓库保留 [验证摘要](validation-summary.json)、[着陆动画](assets/landing.gif) 和 [轨迹图](assets/trajectory.png)。完整复现方法见 [验收说明](VALIDATION.md)；`examples/reproduce_acceptance.py` 生成的原始评估、轨迹和机器记录只保存在本地 `artifacts/`。
+仓库保留 [验证摘要](validation-summary.json)、[着陆动画](assets/landing.gif) 和 [轨迹图](assets/trajectory.png)。完整复现方法见 [验收说明](VALIDATION.md)；`examples/reproduce_acceptance.py` 生成的原始评估、轨迹和机器记录只保存在本地 `artifacts/`，`examples/build_validation_summary.py --check` 可在不重跑评估的情况下校验源码与初态清单哈希。
 
 本实现不包含轨道动力学、地形坡度、环境观测噪声、延迟、空气阻力、燃料晃动或时变惯量。若 KSP 实船误差显著，应先实测并校准这些差异，再决定是否扩展模型或将其作为独立鲁棒性条件，避免无记录地改变名义实验。

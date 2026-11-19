@@ -68,7 +68,10 @@ def save_trajectory(output: Path, trajectory: dict, result: dict, config: SimCon
     for ax in axes.flat:
         ax.grid(alpha=0.2)
     controller_name = result.get("controller", "scripted").capitalize()
-    figure.suptitle(f"{controller_name} landing | {result['status']} | error {result['horizontal_error']:.2f} m")
+    landing_error = result.get("landing_error")
+    if landing_error is None:
+        landing_error = result["horizontal_error"]
+    figure.suptitle(f"{controller_name} landing | {result['status']} | error {landing_error:.2f} m")
     figure.savefig(output / "trajectory.png", dpi=160)
     plt.close(figure)
     if not gif:

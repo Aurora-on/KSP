@@ -58,7 +58,7 @@ env.set_state(checkpoint)
 | `crash` / `fuel_exhausted` | `terminated=True` | 失败 |
 | `timeout` / `out_of_bounds` | `truncated=True` | 失败 |
 
-安全判定要求第一次触地符合速度/姿态/角速度阈值，随后持续满足稳定条件。仓库默认窗口为 5 s，原本地独立版为 2 s；历史结果必须保留对应配置。目标半径不参与 `is_success`；`safe_in_target` 才同时要求安全和落点达标。其他安全阈值仍是本模拟器 pilot 值，共享 KSP 阈值须另行决策并在正式比较前冻结。
+安全判定要求第一次触地符合速度/姿态/角速度阈值，随后持续满足稳定条件。仓库默认窗口为 5 s，原本地独立版为 2 s；历史结果必须保留对应配置。目标半径不参与 `is_success`；`safe_in_target` 才同时要求安全和**首次触地**落点达标。采样时刻固定为首次触地，稳定窗口内的地面滑行不改变该判定，也不能用窗口结束时的位置替代。其他安全阈值仍是本模拟器 pilot 值，共享 KSP 阈值须另行决策并在正式比较前冻结。
 
 Replay 至少保存 `obs, applied_action, reward, next_obs, terminated, truncated, dt`，并保留终止步的真实 `next_obs`；自动重置后的初态不能替代它。Dreamer 的 `is_last = terminated or truncated`，新 episode 第一个观测 `is_first=True`。按照标准 Gymnasium bootstrap 语义，`is_terminal = terminated`；不要把“成功”等同于 `terminated`，因为碰撞和燃料耗尽同样是 terminal。
 
@@ -68,13 +68,13 @@ Replay 至少保存 `obs, applied_action, reward, next_obs, terminated, truncate
 
 ## 结果与奖励字段
 
-每步 `info` 含时间、状态、`is_success, safe_in_target, horizontal_error`、`main_fuel_used, rcs_fuel_used, total_fuel_used`、倾角、角速度、接触状态、累计稳定时间和 `reward_terms`。燃料消耗字段是 episode 累计量，单位 kg。`touchdown` 保存首次触地前速度、倾角、角速度、水平误差和事件时间；不能用碰撞投影/阻尼后的速度替代。`last_touchdown` 保存最近一次触地快照，`touchdown_count` 累计触地次数；再次离地会清零稳定时间，再触地需要重新满足整个窗口，首次触地快照仍保留。
+每步 `info` 含时间、状态、`is_success, safe_in_target, horizontal_error, landing_error`、`main_fuel_used, rcs_fuel_used, total_fuel_used`、倾角、角速度、接触状态、累计稳定时间和 `reward_terms`。`horizontal_error` 是当前状态到目标的水平距离；`landing_error` 是首次触地时的落点误差，只在已触地后出现，评估与 `safe_in_target` 使用它。燃料消耗字段是 episode 累计量，单位 kg。`touchdown` 保存首次触地前速度、倾角、角速度、水平误差和事件时间；不能用碰撞投影/阻尼后的速度替代。`last_touchdown` 保存最近一次触地快照，`touchdown_count` 累计触地次数；再次离地会清零稳定时间，再触地需要重新满足整个窗口，首次触地快照仍保留。
 
-为兼容 Gymnasium 向量环境混合飞行/接触状态，首次触地前 `info` 不含 `touchdown`、`last_touchdown` 键，单环境使用 `info.get("touchdown")` 读取；向量环境同时检查对应的 `_touchdown` 有效性掩码。完整 checkpoint 始终保留这两个字段，未触地时值为 `None`。
+为兼容 Gymnasium 向量环境混合飞行/接触状态，首次触地前 `info` 不含 `touchdown`、`last_touchdown`、`landing_error` 键，单环境使用 `info.get("touchdown")` 读取；向量环境同时检查对应的 `_touchdown` 有效性掩码。完整 checkpoint 始终保留前两者，未触地时值为 `None`。
 
 终止时另有 `episode` 汇总。`reward_terms` 各项之和等于当前步奖励；共享实现位于 `mun_lander.reward.compute_reward`。KSP 应按同一时间步积分运行代价，按实际耗料记油耗代价，按同一任务状态发放终止奖惩。真实 KSP 的部件损伤是额外安全否决项，不能由这里的接触近似替代。
 
-评估汇总的 `safe_in_target_rate = 安全且入靶的试验数 / 全部试验数`。仓库任务契约的 `precision_rate = 入靶试验数 / 全部试验数` 不要求安全，因此入靶但不安全的试验也可计入其分子。这两个指标不能直接改名或混用；共享评估器需按任务契约单独计算 `precision_rate`，同时保留安全入靶率供参考。
+评估汇总的 `safe_in_target_rate = 安全且首次触地入靶的试验数 / 全部试验数`，`mean_landing_error_safe = 安全样本首次触地误差的平均`。仓库任务契约的 `precision_rate = 入靶试验数 / 全部试验数` 不要求安全，因此入靶但不安全的试验也可计入其分子；其采样时刻仍待共享评估器按任务契约决定。这两个指标不能直接改名或混用；共享评估器需按任务契约单独计算 `precision_rate`，同时保留安全入靶率供参考。
 
 ## KSP 适配前必须落实的映射
 
