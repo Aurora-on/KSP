@@ -14,6 +14,7 @@ World Models for Lunar Landing in Kerbal Space Program
 ## 已有内容
 
 - KSP 1.12.5 + kRPC 0.7.0 的只读诊断、遥测记录及显式灯光控制测试。
+- `ksp_env/` 可导入适配器骨架：连接、配置、诊断状态读取；任务观测、reset/step 仍受 TBD 决策阻塞，详见 [KSP 环境接口](docs/ksp-env.md)。
 - Python 3.12–3.14 环境配置，固定版本的 NumPy、SciPy、Gymnasium、PyTorch、Matplotlib。
 - 完全离线的依赖、CPU/MPS 运算和本地插件文件检查。
 - Mun 任务定性契约：固定 nominal 着陆器、重力和平坦站点，随机初始位置/速度/姿态，RCS + 主发动机控制，5 s 稳定性窗口；数值阈值保持空缺。
@@ -31,6 +32,16 @@ git clone git@github.com:Aurora-on/KSP.git
 cd KSP
 bash scripts/bootstrap.sh
 ```
+
+当前 Windows + WSL2 主机没有 `ensurepip`，改用 `uv` 建立 KSP 接口环境：
+
+```sh
+uv venv --python 3.14 .venv
+uv pip install --python .venv/bin/python \
+  krpc==0.7.0 protobuf==7.36.2 numpy==2.5.4 gymnasium==1.4.0 matplotlib==3.11.2
+```
+
+如需完整科学计算栈（含 SciPy/PyTorch），使用 `requirements/dev.txt`。不跑训练时不需要 PyTorch。
 
 单独检查科学计算环境，不启动游戏、不发送控制命令：
 
@@ -56,10 +67,11 @@ bash scripts/bootstrap.sh
 ## 仓库结构
 
 ```text
-configs/       Mun 任务契约；定性决策已记录，未确定的数值保持 TBD
+configs/       Mun 任务契约（数值 TBD）与 adapter 测试配置（非任务）
 docs/          proposal 对照、任务契约、实验协议、环境要求、验证记录与开发顺序
+ksp_env/       可导入的 KSP 环境接口（连接、观测、动作、reset/step 骨架）
 requirements/  直接依赖、开发依赖、本机完整版本快照
-scripts/       环境安装、离线检查、游戏连接诊断、遥测
+scripts/       环境安装、离线检查、游戏连接诊断、遥测、控制响应探测
 tests/         不依赖 KSP 的检查规则测试
 ```
 

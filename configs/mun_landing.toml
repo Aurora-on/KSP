@@ -22,6 +22,7 @@ game_version = "1.12.5"
 site = "flat"
 gravity = "fixed_nominal"
 craft = "fixed_nominal"
+save_name = "TBD"  # named descent save; required by reset
 randomize_initial = ["position", "velocity", "attitude"]
 descent_altitude_m = "TBD"
 target_position = "TBD"
@@ -42,6 +43,7 @@ fields = [
 frame = "TBD"  # target-relative surface frame; define before adapter implementation
 units = "SI"
 normalization = "TBD"
+main_engine_fuel_resource = "TBD"  # craft-specific resource name; unit/normalization TBD
 # Mass and inertia are read-only telemetry. Whether they are part of the
 # observation or only used for OOD conditioning must be decided before training.
 
@@ -114,6 +116,8 @@ rq2_identical_ksp_dataset = true
 [implementation]
 # Still implementation recommendations unless a later decision record says otherwise.
 dynamics = "rigid_body_6dof"
-step_api = "gymnasium"
+# Core adapter follows Gymnasium semantics but does not require the gymnasium
+# package; a thin gym.Env wrapper is deferred until reward and spaces are fixed.
+step_api = "gymnasium_compatible_core"
 time_source = "simulation_ut"
 reset_strategy = "named_snapshot_and_readback"
