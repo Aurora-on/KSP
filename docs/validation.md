@@ -1,5 +1,30 @@
 # Validation record
 
+## 2026-11-24 — M0 agent packaging and CPU checks
+
+Tested the M0 source at `5133edf` (base `e6a67b9`) on an Apple M5, macOS arm64.
+Each Python version used a fresh virtual environment and the release pins for
+PyTorch 2.15.0, NumPy 2.5.4, Gymnasium 1.4.0 and pytest 9.2.0.
+The following commands ran from the repository root. Times are elapsed seconds.
+
+| Command | Python 3.12.14 | Python 3.14.4 |
+| --- | --- | --- |
+| `python -m pip install -c requirements/runtime.txt -e ./simulator -e './agent[dev]'` | Installed, 29.19 s | Installed, 30.11 s |
+| `python -m pip check` | Passed, 0.23 s | Passed, 0.26 s |
+| `python -m pytest agent/tests -q` | 1 passed, 20.37 s | 1 passed, 13.24 s |
+
+On Python 3.14.4, `python3 -m compileall -q ksp_env scripts tests` succeeded
+(0.08 s). In an environment with the kRPC client installed,
+`python3 -m unittest discover -s tests -v` passed 26 tests and skipped both
+opt-in live tests (0.18 s). In the clean agent environment,
+`python -m pytest simulator/tests -q -rs` passed 61 and skipped one (4.83 s).
+The manifest reproduction test requires NumPy 2.4.6. Gymnasium emitted two
+warnings about unbounded observations.
+
+These checks cover simulator-side installation, a CPU tensor operation and
+offline regressions. Training configuration, seed and evaluation manifest hash
+are inapplicable to M0. No training or live KSP run was performed.
+
 ## 2026-11-19: standalone 6DOF simulator source-domain acceptance
 
 The `simulator/` module was re-run with the pinned `simulator/requirements-tested.txt` stack (Python 3.14.4, NumPy 2.4.6, Gymnasium 1.4.0). Per-check detail is in [`simulator/docs/VALIDATION.md`](../simulator/docs/VALIDATION.md); the machine-readable record is [`simulator/docs/validation-summary.json`](../simulator/docs/validation-summary.json).
