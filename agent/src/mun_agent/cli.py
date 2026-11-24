@@ -89,7 +89,7 @@ def main(argv=None):
                                       provenance=metadata["episode_provenance"])
             role = "training" if args.training_diagnostic else "heldout"
             result["acceptance"]["pass"] &= not args.training_diagnostic
-            result.update(dataset_role=role, device=str(device), checkpoint_sha256=file_hash(args.checkpoint),
+            result.update(dataset_role=role, updates=checkpoint["updates"], device=str(device), checkpoint_sha256=file_hash(args.checkpoint),
                           fit_seed=checkpoint["seed"], collection_seed=metadata["seed"],
                           train_manifest_sha256=checkpoint["train_manifest_sha256"],
                           **{f"{role}_manifest_sha256": metadata["train_manifest_sha256"],
