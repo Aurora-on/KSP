@@ -1,4 +1,4 @@
-50
+# Validation record
 
 ## 2026-11-24 — M1 replay and M2 world-model acceptance
 
@@ -22,7 +22,6 @@ M2 source `f40f6de`, clean at the start of both runs. Each preset was fitted onc
 | debug | 120 | 128 (0) | 7.5179 | 1.6097 | 2.74 s | 1.25 s |
 | base | 1000 | 866 (3) | 8.2536 | 2.4501 | 73.28 s | 2.03 s |
 
-
 Each origin incorporates observations up to that frame. The RSSM then predicts using only recorded future actions. Every eligible origin in the held-out collection contributes. Vector errors are mean Euclidean distances at the endpoint. Tilt, fuel and reward use mean absolute errors. Terminal labels combine termination and truncation at the endpoint. Counts are given for both rates because each horizon has only eight actual endings.
 
 | Preset | Horizon | Endpoints | Position (m) | Velocity (m/s) | Tilt (deg) | Angular velocity (rad/s) | Fuel (kg) | Reward | Terminal recall (TP/actual) | False positives (FP/actual negatives) |
@@ -35,7 +34,6 @@ Each origin incorporates observations up to that frame. The RSSM then predicts u
 | base | 5 | 2641 | 24.609 | 2.459 | 8.840 | 0.0936 | 24.270 | 0.3374 | 0/8 | 0/2633 |
 | base | 15 | 2561 | 25.503 | 2.524 | 9.112 | 0.0875 | 27.482 | 0.3503 | 0/8 | 0/2553 |
 | base | 50 | 2281 | 23.972 | 2.500 | 7.845 | 0.0926 | 31.108 | 0.3947 | 0/8 | 0/2273 |
-
 
 Both presets missed all eight real endings at every horizon and produced zero false positives. Position error at one step exceeded 23 m in both runs. The loss decreased on the training probes, while the held-out trajectories show substantial physical prediction error.
 
