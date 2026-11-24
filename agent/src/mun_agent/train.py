@@ -15,6 +15,7 @@ from .deterministic import DeterministicModel, load_deterministic
 from .deterministic_fit import EpisodeWindows
 from .fit import code_version
 from .imagination import Actor, Critic, update_actor_critic
+from .interface import to_native_action
 from .policy import Policy, policy_checkpoint
 from .replay import Episode, Replay
 from .vertical import collect_policy, evaluate_vertical, load_validation
@@ -36,6 +37,10 @@ def _serialize_episode(episode):
 
 
 def _check_config(c):
+    if c.get("estimator", "pathwise") not in ("pathwise", "sampled"):
+        raise ValueError("unknown policy-gradient estimator")
+    if c.get("estimator") == "sampled" and not (math.isfinite(c["action_std"]) and c["action_std"] > 0):
+        raise ValueError("sampled policy needs a positive, finite Gaussian standard deviation")
     if c["task"] != "vertical" or not 0 < c["max_seconds"] <= 7200:
         raise ValueError("S2 needs the vertical task and a budget of at most two hours")
     for name in ("iterations", "cpu_threads", "collect_episodes", "fifo_episodes", "wm_batch", "wm_updates",
@@ -104,6 +109,21 @@ class BudgetExpired(Exception):
     pass
 
 
+class _GaussianCollector(Policy):
+    """Use the same stochastic actor distribution in the simulator and model rollouts."""
+    def __init__(self, actor, spec, action_std):
+        super().__init__(actor, spec)
+        self.action_std = action_std
+
+    @torch.inference_mode()
+    def __call__(self, obs):
+        from .imagination import sampled_action
+        reference = next(self.actor.parameters())
+        state = torch.as_tensor(self.state(obs), device=reference.device)
+        action, _ = sampled_action(self.actor, state, self.action_std)
+        return to_native_action(action.cpu().numpy())
+
+
 class _TimedPolicy:
     """Check the wall clock even inside long simulator evaluations."""
     def __init__(self, policy, check):
@@ -150,22 +170,32 @@ def _publish_files(out, progress, improved):
 def train_policy(config, prefill_path, world_model_path, validation_path, out, seed=31, device="cpu",
                  *, resume=False):
     """Protect the run's checkpoints/logs against simultaneous writers."""
-    # macOS, Linux and WSL release the advisory lock automatically on crash.
-    import fcntl
 
     _check_config(config)
     out = Path(out)
     if not resume:
         out.mkdir(parents=True, exist_ok=False)
-    directory = os.open(out, os.O_RDONLY)
-    try:
-        try:
-            fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise RuntimeError(f"training is already running in {out}") from error
+    lock = out / ".training.lock"
+    with lock.open("a+b") as handle:
+        # OS advisory locks are released on crash, including after a hard kill.
+        if os.name == "nt":
+            import msvcrt
+            if handle.tell() == 0:
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as error:
+                raise RuntimeError(f"training is already running in {out}") from error
+        else:
+            import fcntl
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise RuntimeError(f"training is already running in {out}") from error
         return _train(config, prefill_path, world_model_path, validation_path, out, seed, device, resume)
-    finally:
-        os.close(directory)
+
 
 
 def _train(config, prefill_path, world_model_path, validation_path, out, seed, device, resume):
@@ -189,8 +219,9 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
     wm_arch = {k:initial["config"].get(k, False) for k in ("width", "event_weight", "kinematic", "contact_margin")}
     static = EpisodeWindows(prefill, meta, spec, device)
     near_static = _near(static, spec, c)
-    actor = Actor(c["actor_width"], vertical_only=True).to(device)
-    critic = Critic(c["critic_width"], c["value_scale"], upper_bound=c.get("critic_upper_bound")).to(device)
+    actor = Actor(c["actor_width"], vertical_only=True, yaw_invariant=c.get("yaw_invariant", False)).to(device)
+    critic = Critic(c["critic_width"], c["value_scale"], upper_bound=c.get("critic_upper_bound"),
+                    yaw_invariant=c.get("yaw_invariant", False)).to(device)
     policy = Policy(actor, spec)
     wm_params = [*model.dynamics.parameters(), *model.event.parameters()]
     groups = [{"params": [*wm_params, *model.diagnostic_reward.parameters()]}]
@@ -208,6 +239,16 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
     fifo, outcomes = [], []
     progress = dict(iteration=-1, actor_updates=0, model_updates=0, env_steps=meta["env_steps"],
                     elapsed_s=0., best_rate=-1., best_iteration=None, metrics=[], validations=[])
+    if resume and not latest.is_file():
+        # A crash during setup can precede the first complete checkpoint.
+        metadata_path = out / "config.json"
+        if metadata_path.is_file():
+            original = json.loads(metadata_path.read_text())
+            if any(original.get(k) != v for k, v in provenance.items()):
+                raise ValueError("resume requires identical configuration and inputs")
+        elif any((out / name).exists() for name in ("validation.jsonl", "metrics.jsonl", "summary.json")):
+            raise ValueError("missing training checkpoint and configuration for existing run")
+        resume = False
     if resume:
         saved = torch.load(latest, map_location="cpu", weights_only=True)
         if saved["training_schema"] != 1 or saved["provenance"] != provenance:
@@ -223,7 +264,7 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
         _recover_rng(saved, rng, device)
         _publish_files(out, progress, progress["best_iteration"] == progress["iteration"])
     else:
-        checkpoints.mkdir()
+        checkpoints.mkdir(exist_ok=True)
         _write_json(out / "config.json", dict(provenance, code=code_version(), training_source_sha256=file_hash(Path(__file__)), wm_arch=wm_arch,
                                                prefill_path=str(prefill_path), validation_path=str(validation_path),
                                                world_model_path=str(world_model_path)))
@@ -236,6 +277,14 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
             raise BudgetExpired
 
     timed_policy = _TimedPolicy(policy, check_budget)
+    collection_policy = timed_policy
+    actor_update = update_actor_critic
+    update_options = dict(horizon=c["horizon"], gamma=c["gamma"], lam=c["lambda"], critic_epochs=c["critic_epochs"])
+    if c.get("estimator") == "sampled":
+        from .imagination import update_sampled_actor_critic
+        collection_policy = _TimedPolicy(_GaussianCollector(actor, spec, c["action_std"]), check_budget)
+        actor_update = update_sampled_actor_critic
+        update_options["action_std"] = c["action_std"]
 
     def commit(iteration, improved):
         progress["iteration"] = iteration
@@ -256,7 +305,11 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
         row = {k:v for k,v in result.items() if k not in ("config", "controller_config", "episodes")}
         row.update(iteration=iteration, elapsed_s=elapsed(),
                    **{k:progress[k] for k in ("env_steps","actor_updates","model_updates")})
+        row["phase"] = "online" if progress["actor_updates"] > 0 else "untrained"
         progress["validations"].append(row)
+        if progress["actor_updates"] == 0:
+            progress["initial_rate"] = row["safe_landing_rate"]
+            return False
         if row["safe_landing_rate"] <= progress["best_rate"]:
             return False
         progress.update(best_rate=row["safe_landing_rate"], best_iteration=iteration)
@@ -273,7 +326,7 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
                 break
             check_budget()
             collect_seed = seed * 1_000_000 + iteration
-            batch, record = collect_policy(timed_policy, seed=collect_seed, episodes=c["collect_episodes"], noise_std=c["noise_std"])
+            batch, record = collect_policy(collection_policy, seed=collect_seed, episodes=c["collect_episodes"], noise_std=c["noise_std"])
             fifo.extend(batch.episodes)
             outcomes.extend(record["episode_provenance"])
             fifo = fifo[-c["fifo_episodes"]:]
@@ -303,8 +356,7 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
                 check_budget()
                 starts = torch.cat([_sample_starts(pool,near,rng,n,c["near_fraction"]) for pool,near,n in
                                     zip((static,live),(near_static,near_live),counts,strict=True)])
-                metrics = update_actor_critic(model,actor,critic,starts,opt_a,opt_v,horizon=c["horizon"],
-                                              gamma=c["gamma"],lam=c["lambda"],critic_epochs=c["critic_epochs"])
+                metrics = actor_update(model, actor, critic, starts, opt_a, opt_v, **update_options)
                 for key,value in metrics.items():
                     totals[key] += value/c["actor_updates"]
                 progress["actor_updates"] += 1
@@ -330,7 +382,7 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
         tmp.replace(latest)
         _publish_files(out, progress, progress["best_iteration"] == progress["iteration"])
     summary = {k:v for k,v in progress.items() if k not in ("metrics","validations")}
-    summary["first_passing_validation"] = next((v for v in progress["validations"] if v["safe_landing_rate"] >= .8), None)
+    summary["first_passing_validation"] = next((v for v in progress["validations"] if v["actor_updates"] > 0 and v["safe_landing_rate"] >= .8), None)
     summary["threshold_on_supplied_manifest"] = progress["best_rate"] >= .80
     official = manifest["seed"] == 2026 and len(manifest["starts"]) == 100
     summary["official_validation"] = official

@@ -121,7 +121,8 @@ def diagnose(checkpoint, data, device="cpu"):
         raise ValueError("prefill differs from checkpoint training provenance")
     config = source["config"]
     model = load_training_world_model(saved, device)
-    critic = Critic(config["critic_width"], config["value_scale"], config.get("critic_upper_bound")).to(device)
+    critic = Critic(config["critic_width"], config["value_scale"], config.get("critic_upper_bound"),
+                    config.get("yaw_invariant", False)).to(device)
     critic.load_state_dict(saved["critic"])
     critic.eval()
     fifo = Replay(Episode(**{k: v.numpy() for k, v in ep.items()}) for ep in saved["fifo"])

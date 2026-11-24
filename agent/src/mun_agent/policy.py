@@ -43,7 +43,8 @@ class Policy:
 
 def policy_checkpoint(actor, spec):
     return {"policy_schema_version": 1, "interface_spec": spec,
-            "actor_spec": {"width": actor.width, "vertical_only": actor.vertical_only},
+            "actor_spec": {"width": actor.width, "vertical_only": actor.vertical_only,
+                           "yaw_invariant": actor.yaw_invariant},
             "actor": actor.state_dict()}
 
 

@@ -130,3 +130,67 @@ def test_optional_critic_bound_preserves_negative_tail_and_checkpoint_keys():
     assert value.item() < 100.
     value.backward()
     assert critic.network[-1].bias.grad.item() > 0
+
+
+@pytest.mark.parametrize("vertical_first_column", [False, True])
+def test_yaw_frame_changes_neither_actor_nor_critic(vertical_first_column):
+    from mun_agent.imagination import yaw_canonical_state
+    torch.manual_seed(73)
+    state = torch.randn(10, 18)
+    if vertical_first_column:
+        state[:, 6:8] = 0
+    angle = torch.linspace(-3., 3., len(state))[:, None]
+    rotated = state.clone()
+    for i in (0, 3, 6, 9):
+        x, y = state[:, i:i + 1], state[:, i + 1:i + 2]
+        rotated[:, i:i + 1] = x * angle.cos() - y * angle.sin()
+        rotated[:, i + 1:i + 2] = x * angle.sin() + y * angle.cos()
+    torch.testing.assert_close(yaw_canonical_state(rotated), yaw_canonical_state(state))
+    actor = Actor(width=16, yaw_invariant=True)
+    critic = Critic(width=16, yaw_invariant=True)
+    nn.init.normal_(critic.network[-1].weight)
+    for net in (actor, critic):
+        torch.testing.assert_close(net(state), net(rotated), atol=1e-5, rtol=1e-5)
+
+
+def test_score_function_uses_fixed_active_samples_and_ignores_post_abort(monkeypatch):
+    class MeanOnly(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.vertical_only = True
+            self.bias = nn.Parameter(torch.zeros(4))
+
+        def location(self, states):
+            return self.bias.expand(*states.shape[:-1], 4)
+
+    class RecordingModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.gain = nn.Parameter(torch.tensor(1.))
+            self.spec = {}
+            self.actions = []
+
+        def step(self, state, action):
+            assert not torch.is_grad_enabled()
+            assert not state.requires_grad and not action.requires_grad
+            self.actions.append(action.clone())
+            assert not action[..., 1:].any()
+            return state, self.gain * action[:, 0], None
+
+    monkeypatch.setattr(imagination, "task_reward", lambda s, a, ns, p, spec: (p, torch.zeros_like(p)))
+    torch.manual_seed(12)
+    actor, critic, model = MeanOnly(), Critic(width=8), RecordingModel()
+    std = .3
+    starts = torch.zeros(64, 18, requires_grad=True)
+    stats = imagination.update_sampled_actor_critic(model, actor, critic, starts,
+        torch.optim.SGD(actor.parameters(), lr=.1), torch.optim.SGD(critic.parameters(), lr=0),
+        horizon=3, action_std=std)
+    first = model.actions[0][:, 0]
+    # All later actions are after the first rule abort, with zero score weight.
+    standardized = (first - first.mean()) / first.std(unbiased=False)
+    analytic = (standardized * first.atanh() / std**2).mean()
+    assert stats["actor_grad_norm"] == pytest.approx(analytic.item(), rel=1e-5)
+    assert stats["value_target_mean"] == pytest.approx(first.mean().item(), abs=1e-6)
+    assert stats["end_survival"] == 0
+    assert actor.bias[0] > 0 and not actor.bias[1:].any()
+    assert model.gain.grad is None and starts.grad is None

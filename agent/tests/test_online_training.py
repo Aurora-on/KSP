@@ -13,7 +13,8 @@ from mun_agent.policy import load_policy
 from mun_agent.vertical import collect_prefill, prepare_validation
 
 
-def test_real_loop_resumes_from_last_complete_iteration(tmp_path, monkeypatch):
+@pytest.mark.parametrize("estimator", ["pathwise", "sampled"])
+def test_real_loop_resumes_from_last_complete_iteration(tmp_path, monkeypatch, estimator):
     spec = deterministic_spec(SimConfig())
     torch.manual_seed(123)
     wm = DeterministicModel(spec, width=16)
@@ -27,7 +28,7 @@ def test_real_loop_resumes_from_last_complete_iteration(tmp_path, monkeypatch):
     validation = tmp_path / "validation.json"
     prepare_validation(validation, episodes=1)
     config = json.loads((Path(__file__).parents[1] / "configs/diag_vertical.json").read_text())
-    config.update(iterations=2, collect_episodes=1, fifo_episodes=1, actor_updates=1, wm_updates=1,
+    config.update(estimator=estimator, action_std=.3, iterations=2, collect_episodes=1, fifo_episodes=1, actor_updates=1, wm_updates=1,
                   actor_width=8, critic_width=8, imagined_batch=4, wm_batch=4, horizon=2,
                   cpu_threads=1, validate_every=1, critic_epochs=1)
     args = config, data, source, validation
@@ -59,6 +60,7 @@ def test_real_loop_resumes_from_last_complete_iteration(tmp_path, monkeypatch):
     assert [r["iteration"] for r in rows] == [0,1,2]
     assert all(r["n_episodes"] == 1 and r["starts_sha256"] == rows[0]["starts_sha256"] for r in rows)
     best = interrupted / "checkpoints/best.pt"
+    assert torch.load(best, weights_only=True)["progress"]["actor_updates"] > 0
     policy = load_policy(best)
     assert policy(replay.episodes[0].obs[0])[1:].tolist() == [0.,0.,0.]
     fitted = training.load_training_world_model(interrupted / "checkpoints/latest.pt")
