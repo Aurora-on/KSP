@@ -1,4 +1,61 @@
-# Validation record
+50
+
+## 2026-11-24 — M1 replay and M2 world-model acceptance
+
+Apple M5 CPU, macOS arm64, Python 3.14.4, PyTorch 2.15.0, NumPy 2.5.4 and Gymnasium 1.4.0. These runs cover offline model fitting and simulator-only prediction. Landing-policy evaluation starts in a later milestone.
+
+### M1 collection and replay
+
+M1 source `4e4cf4e`. Both collections used nominal `SimConfig()` and `agent/configs/debug.json`. Each used seven scripted episodes (native action noise standard deviations 0, 0.05, 0.1 and 0.2) and one uniform-random episode. Both come from the simulator train split, using disjoint reset seeds. The real trajectory arrays (observations, applied actions, rewards and both end flags) matched the stored NPZ arrays element for element when collected again. The fixed validation and test sets were reserved for later policy assessment.
+
+| Collection | Root seed | Episodes | Transitions | Manifest SHA-256 | Collection wall time |
+| --- | ---: | ---: | ---: | --- | ---: |
+| Training | 17 | 8 | 2633 | `890a1e09e8f0bf619feec949c8a3c3b614aadd3285d9902ad76b707e84eb1abd` | 1.62 s |
+| Held out | 18 | 8 | 2673 | `7a665e436f46ecb240b69446fe47c6e3a2d5b6dd06b11d752de19759908492e1` | 1.23 s |
+
+### M2 offline fitting and open-loop diagnosis
+
+M2 source `f40f6de`, clean at the start of both runs. Each preset was fitted once on the same eight training episodes using seed 31. The loss was evaluated before and after fitting using identical real transitions from the training replay, with the posterior set to its mode. The probe depends on batch size and sequence length, so each loss pair is interpreted within its own preset.
+
+| Preset | Updates | Probe transitions (terminal) | Loss before | Loss after | Fit command wall time | Report command wall time |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| debug | 120 | 128 (0) | 7.5179 | 1.6097 | 2.74 s | 1.25 s |
+| base | 1000 | 866 (3) | 8.2536 | 2.4501 | 73.28 s | 2.03 s |
+
+
+Each origin incorporates observations up to that frame. The RSSM then predicts using only recorded future actions. Every eligible origin in the held-out collection contributes. Vector errors are mean Euclidean distances at the endpoint. Tilt, fuel and reward use mean absolute errors. Terminal labels combine termination and truncation at the endpoint. Counts are given for both rates because each horizon has only eight actual endings.
+
+| Preset | Horizon | Endpoints | Position (m) | Velocity (m/s) | Tilt (deg) | Angular velocity (rad/s) | Fuel (kg) | Reward | Terminal recall (TP/actual) | False positives (FP/actual negatives) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| debug | 1 | 2673 | 31.278 | 3.022 | 12.269 | 0.0677 | 58.540 | 0.3173 | 0/8 | 0/2665 |
+| debug | 5 | 2641 | 30.357 | 2.943 | 7.897 | 0.0690 | 18.221 | 0.3205 | 0/8 | 0/2633 |
+| debug | 15 | 2561 | 29.105 | 2.905 | 7.897 | 0.0647 | 14.873 | 0.3296 | 0/8 | 0/2553 |
+| debug | 50 | 2281 | 24.279 | 2.793 | 6.601 | 0.0635 | 17.537 | 0.3663 | 0/8 | 0/2273 |
+| base | 1 | 2673 | 23.166 | 2.412 | 8.557 | 0.0954 | 23.064 | 0.3309 | 0/8 | 0/2665 |
+| base | 5 | 2641 | 24.609 | 2.459 | 8.840 | 0.0936 | 24.270 | 0.3374 | 0/8 | 0/2633 |
+| base | 15 | 2561 | 25.503 | 2.524 | 9.112 | 0.0875 | 27.482 | 0.3503 | 0/8 | 0/2553 |
+| base | 50 | 2281 | 23.972 | 2.500 | 7.845 | 0.0926 | 31.108 | 0.3947 | 0/8 | 0/2273 |
+
+
+Both presets missed all eight real endings at every horizon and produced zero false positives. Position error at one step exceeded 23 m in both runs. The loss decreased on the training probes, while the held-out trajectories show substantial physical prediction error.
+
+The debug CPU smoke took 6.84 s across the two collection commands, fitting and the report, including separate interpreter startups. Longer horizons exclude origins too near the episode end. Aggregate errors at different horizons therefore use different sets of origins.
+
+From the repository root with the editable simulator and agent installed:
+
+```sh
+mun-agent collect --config agent/configs/debug.json --seed 17 --device cpu --out agent/data/m1-train
+mun-agent collect --config agent/configs/debug.json --seed 18 --device cpu --out agent/data/m2-heldout
+for preset in debug base; do
+  mun-agent train --config "agent/configs/${preset}.json" --seed 31 --device cpu \
+    --data agent/data/m1-train --out "agent/runs/m2-${preset}"
+  mun-agent wm-report --config "agent/configs/${preset}.json" --device cpu \
+    --data agent/data/m2-heldout --checkpoint "agent/runs/m2-${preset}/world_model.pt" \
+    --out "agent/runs/m2-${preset}/wm-report.json"
+done
+```
+
+Both milestones passed the offline syntax and regression checks. At M1, `python -m pytest agent/tests -q` passed 21 cases (20 added). At M2, it passed 32 (11 additional). For each milestone, `python3 -m compileall -q ksp_env scripts tests` succeeded, `python3 -m unittest discover -s tests -v` passed 26 and skipped two opt-in live checks, and `python -m pytest simulator/tests -q` passed 61 and skipped the NumPy 2.4.6 manifest reproduction test. The simulator tests emitted the two existing unbounded-observation warnings.
 
 ## 2026-11-24 — M0 agent packaging and CPU checks
 
