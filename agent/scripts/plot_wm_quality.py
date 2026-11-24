@@ -19,16 +19,20 @@ from matplotlib.ticker import FixedLocator, FuncFormatter, NullLocator, PercentF
 
 RUNS = (
     ("m2r-short-A", "Short A", "#2166a4", "o", "-"),
-    ("m2r-short-B", "Short B", "#c55519", "s", "-"),
-    ("m2r-long-B", "Long B", "#197757", "^", "--"),
+    ("m2r-short-B", "Short B · weighted pilot", "#a24f14", "s", ":"),
+    ("m2r-short-C", "Short C", "#8260a2", "D", "-"),
+    ("m2r-long-A", "Long A", "#197757", "^", "--"),
+    ("m2r-long-C", "Long C", "#197757", "^", "--"),
 )
 POSITION, VELOCITY, TILT = "position_error_m", "velocity_error_m_s", "tilt_mae_deg"
 
 
-def read_runs(study):
+def read_runs(study, long_run):
     runs = {}
     sample = None
     for name, *_ in RUNS:
+        if name.startswith("m2r-long-") and long_run and name != f"m2r-long-{long_run}":
+            continue
         points = {}
         for path in sorted((study / name).glob("*-dev.json")):
             with path.open() as stream:
@@ -48,6 +52,8 @@ def read_runs(study):
             points[update] = gates
         if points:
             runs[name] = sorted(points.items())
+    if "m2r-long-A" in runs and "m2r-long-C" in runs:
+        raise ValueError("select the formal fit with --long-run A or --long-run C")
     if not runs:
         raise ValueError(f"no *-dev.json reports found in {study}")
     return runs, sample[0]
@@ -65,8 +71,8 @@ def metric(gates, gate, field, horizon):
     return data["values"][field], data["limits"][field]
 
 
-def plot(study):
-    runs, episodes = read_runs(study)
+def plot(study, long_run=None):
+    runs, episodes = read_runs(study, long_run)
     panels = (
         ("G1", POSITION, 0, "Posterior position", "m"),
         ("G1", VELOCITY, 0, "Posterior velocity", "m/s"),
@@ -88,7 +94,7 @@ def plot(study):
     fig.text(.055, .923, f"{episodes} diagnostic episodes   ·   Near-ground endpoints below 10 m",
              fontsize=12, color="#414b52")
     handles = [Line2D([], [], label=label, color=color, ls=line, marker=marker, ms=6,
-                      markerfacecolor="white" if name == "m2r-long-B" else color)
+                      markerfacecolor="white" if name.startswith("m2r-long-") else color)
                for name, label, color, marker, line in RUNS if name in runs]
     fig.legend(handles=handles, loc="upper right", bbox_to_anchor=(.991, .981), ncols=len(handles),
                frameon=False, handlelength=2.1, fontsize=11)
@@ -112,7 +118,7 @@ def plot(study):
                 xs.append(update)
                 ys.append(float("nan") if y is None else y)
             ax.plot(xs, ys, color=color, marker=marker, ls=line, lw=1.8, ms=4.5,
-                    markerfacecolor="white" if name == "m2r-long-B" else color, zorder=3)
+                    markerfacecolor="white" if name.startswith("m2r-long-") else color, zorder=3)
             values.extend(y for y in ys if math.isfinite(y))
         ax.axhline(bound, ls=(0, (4, 3)), lw=1.15, color="#596167", zorder=2)
         if gate in ("G4", "G5"):
@@ -154,4 +160,6 @@ def plot(study):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--study", type=Path, default=Path("agent/runs/m2r-study"))
-    plot(parser.parse_args().study)
+    parser.add_argument("--long-run", choices=("A", "C"), help="formal long fit if both A and C exist")
+    args = parser.parse_args()
+    plot(args.study, args.long_run)

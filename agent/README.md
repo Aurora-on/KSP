@@ -48,28 +48,51 @@ mun-agent wm-report --config agent/runs/m2r-short-A/config.json --device cpu --d
   --checkpoint agent/runs/m2r-short-A/world_model.pt --out agent/runs/m2r-short-A/dev.json
 ```
 
-复现短拟合 B 时使用相同数据、种子、批量和更新预算，另选输出目录并指定以下模型参数。
+正式候选 C 增加分类因子与类别数，减小 KL 权重，并使用连续贴地步数。它与 A 使用相同的数据、种子、片段长度和终止转移权重。
 
 ```sh
 mun-agent train --config agent/configs/base.json --data agent/data/m2r-train --seed 31 \
-  --device cpu --out agent/runs/m2r-short-B --set fit.length=32 --set fit.updates=2000 \
+  --device cpu --out agent/runs/m2r-short-C --set fit.length=32 --set fit.updates=2000 \
   --set fit.checkpoint_every=1000 --set model.stoch=32 --set model.classes=32 \
   --set model.dynamics_scale=0.5 --set model.representation_scale=0.03 \
-  --set model.event_weight=40 --set model.ground_history=true
+  --set model.event_weight=1 --set model.ground_history=true
 ```
+
+另有协议外探索 B。复现其短拟合时，将上述输出改为 `agent/runs/m2r-short-B`，并把 `model.event_weight` 改为 40。B 的长拟合探索在 7,947 次更新、561.01 秒时主动停止。正式长拟合只从 A、C 选择，其终止转移权重均为 1。[选择依据及加权的影响](docs/METHOD.md)
 
 `--set section.key=value` 可多次使用，值采用 JSON 语法。用 `fit.updates` 指定更新预算，用 `fit.max_seconds` 指定墙钟预算（默认 7140 秒，上限 7200 秒）；拟合在达到任一预算后保存 `world_model.pt`。当 `fit.checkpoint_every` 为正数时，还会保存第 0 次及每隔指定更新数的 `step-XXXXXX.pt`，可逐个运行报告以查看误差随训练的变化。`config.json` 记录实际训练回合数、数值配置、设备、代码版本、种子和数据哈希。`metrics.jsonl` 记录每次更新，`summary.json` 给出同一批训练样本在拟合前后的各项探针损失及实际更新数。拟合和报告支持 `auto|cpu|mps|cuda`；`auto` 按 CUDA、MPS、CPU 的顺序选择。
 
-## 最终质量验收
+## 重建开发集曲线
 
-长拟合采用短拟合 B 的模型参数和种子 31，重新初始化。复现时将 B 命令的输出改为 `agent/runs/m2r-long-B`，更新数改为 `--set fit.updates=180000`，快照间隔改为 `--set fit.checkpoint_every=4000`，墙钟预算为 `--set fit.max_seconds=7140`。
-
-在开发集上选定检查点后，将环境变量 `selected_checkpoint` 设为该文件的实际路径（`step-XXXXXX.pt` 或 `world_model.pt`），在最终留出集运行一次报告。
+绘图使用可选依赖 Matplotlib。仓库约束文件固定了该依赖的版本。以下命令逐个读取已有检查点并在同一批 50 个开发回合上生成报告，文件名中的 `dev` 表示采集种子 180。主动停止的探索性拟合使用停机前已保存的快照。
 
 ```sh
-run_dir=agent/runs/m2r-long-B
+python -m pip install -c requirements/runtime.txt matplotlib
+study_dir=agent/runs/m2r-study-reproduced
+for name in m2r-short-A m2r-short-C m2r-short-B m2r-long-B m2r-long-A m2r-long-C; do
+  run_dir=agent/runs/$name
+  [ -d "$run_dir" ] || continue
+  for checkpoint in "$run_dir"/step-*.pt "$run_dir"/world_model.pt; do
+    [ -f "$checkpoint" ] || continue
+    stem=$(basename "$checkpoint" .pt)
+    report_path="$study_dir/$name/$stem-dev.json"
+    [ -f "$report_path" ] || mun-agent wm-report --config "$run_dir/config.json" \
+      --device cpu --data agent/data/m2r-dev --checkpoint "$checkpoint" --out "$report_path" >/dev/null
+  done
+done
+python agent/scripts/plot_wm_quality.py --study "$study_dir"
+```
+
+图表保存在 `$study_dir/quality-curve.png` 和 `$study_dir/quality-curve.svg`。横轴为优化器更新次数。开发集用于选方案和检查点，各误差的单位、比较基线和达标比例见[方法说明](docs/METHOD.md)。
+
+## 最终质量验收
+
+在开发集上选定正式长拟合的检查点后，将 `selected_checkpoint` 设为该文件的实际路径，再对最终留出集运行一次报告。
+
+```sh
+run_dir=$(dirname "${selected_checkpoint:?需指定从正式长拟合选出的检查点}")
 mun-agent wm-report --config "$run_dir/config.json" --device cpu --data agent/data/m2r-heldout \
-  --checkpoint "${selected_checkpoint:?需指定开发集选定的检查点}" --out "$run_dir/heldout.json"
+  --checkpoint "$selected_checkpoint" --out "$run_dir/heldout.json"
 ```
 
 报告核对模型配置、环境接口、清单和回放哈希。默认模式要求数据与训练初态种子无重叠。若要诊断训练集欠拟合，传入 `--training-diagnostic` 和原始训练目录，该模式核对训练回放 SHA-256。两种模式都可用运行目录的 `config.json`；它保留了实际生效的 `--set model.*`。报告为确定性计算，`--seed` 不改变结果。
