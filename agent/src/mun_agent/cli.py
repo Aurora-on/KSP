@@ -7,6 +7,7 @@ from mun_lander import SimConfig
 
 from .collect import collect
 from .dataset import file_hash, load_dataset, save_dataset
+from .policy_commands import add_policy_commands
 
 
 def common_options(parser):
@@ -102,7 +103,11 @@ def main(argv=None):
     report.add_argument("--data", type=Path, required=True, help="independent held-out collection")
     report.add_argument("--training-diagnostic", action="store_true",
                         help="score the checkpoint's exact training replay and label it as training")
+    add_policy_commands(commands)
     args = parser.parse_args(argv)
+    if hasattr(args, "handler"):
+        print(json.dumps(args.handler(args), allow_nan=False))
+        return
     settings = json.loads(args.config.read_text(encoding="utf-8"))
     if args.command == "wm-report" and "config" in settings and "code" in settings:
         settings = settings["config"]

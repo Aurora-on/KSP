@@ -39,7 +39,7 @@ def _apply_hard_landing(action, obs, vehicle, perturbation):
             action[1:3] = perturbation["rcs_x"], perturbation["rcs_y"]
 
 
-def _collect_episode(env, start, controller, noise_std, hard_parameters):
+def _collect_episode(env, start, controller, noise_std, hard_parameters, action_transform=None):
     # A separate RNG stream keeps action noise independent of reset-state draws.
     rng = np.random.default_rng([start["seed"], 1])
     obs, _ = env.reset(seed=start["seed"], options={"initial_state": start["initial_state"]})
@@ -58,6 +58,8 @@ def _collect_episode(env, start, controller, noise_std, hard_parameters):
             elif noise_std > 0:
                 action = np.clip(action + rng.normal(0, noise_std, size=action.shape), low, high)
 
+        if action_transform is not None:
+            action = action_transform(action)
         obs, reward, terminated, truncated, info = env.step(action.astype(np.float32))
         observations.append(obs.copy())
         actions.append(info["applied_action"].copy())
@@ -87,7 +89,8 @@ def _collect_episode(env, start, controller, noise_std, hard_parameters):
 
 
 def collect(*, seed: int, episodes: int, noise_levels: tuple[float, ...],
-            random_fraction: float, hard_fraction: float = 0.0) -> tuple[Replay, dict]:
+            random_fraction: float, hard_fraction: float = 0.0, manifest=None,
+            action_transform=None) -> tuple[Replay, dict]:
     """Mix uniform random actions with scripted actions at cycling noise levels.
 
     The hard fraction uses capped near-ground throttle and roll/pitch pulses.
@@ -108,8 +111,11 @@ def collect(*, seed: int, episodes: int, noise_levels: tuple[float, ...],
         raise ValueError("noise_levels must contain finite nonnegative standard deviations")
 
     config = SimConfig()
-    manifest = generate_initial_states(config, episodes, seed, split="train")
+    if manifest is None:
+        manifest = generate_initial_states(config, episodes, seed, split="train")
     validate_manifest(manifest)
+    if manifest["split"] != "train" or manifest["seed"] != seed or len(manifest["starts"]) != episodes:
+        raise ValueError("collection manifest does not match train split, seed and size")
     random_count = math.floor(episodes * random_fraction + 0.5)
     hard_count = min(episodes - random_count, math.floor(episodes * hard_fraction + 0.5))
     schedule = [("scripted", float(noise_levels[i % len(noise_levels)]))
@@ -123,7 +129,7 @@ def collect(*, seed: int, episodes: int, noise_levels: tuple[float, ...],
     try:
         for start, (kind, noise_std) in zip(manifest["starts"], schedule, strict=True):
             hard = _hard_parameters(start["seed"]) if kind == "hard_landing" else None
-            episode, outcome = _collect_episode(env, start, controller, noise_std, hard)
+            episode, outcome = _collect_episode(env, start, controller, noise_std, hard, action_transform)
             collected.append(episode)
             provenance.append({
                 "start_id": start["id"], "reset_seed": start["seed"],
