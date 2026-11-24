@@ -1,8 +1,11 @@
-"""Online model fitting and short-horizon policy training for the vertical diagnostic."""
+"""Online model fitting and short-horizon policy training in the landing simulator."""
 import json
 import os
 import math
+import platform
 import shutil
+import subprocess
+import sys
 import time
 from collections import Counter
 from pathlib import Path
@@ -10,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from . import nominal
 from .dataset import file_hash, load_dataset
 from .deterministic import DeterministicModel, load_deterministic
 from .deterministic_fit import EpisodeWindows
@@ -55,8 +59,10 @@ def _check_config(c):
         raise ValueError("unknown policy-gradient estimator")
     if c.get("estimator") == "sampled" and not (math.isfinite(c["action_std"]) and c["action_std"] > 0):
         raise ValueError("sampled policy needs a positive, finite Gaussian standard deviation")
-    if c["task"] != "vertical" or not 0 < c["max_seconds"] <= 7200:
-        raise ValueError("S2 needs the vertical task and a budget of at most two hours")
+    if c["task"] not in ("vertical", "nominal") or not 0 < c["max_seconds"] <= 7200:
+        raise ValueError("expected vertical or nominal training with a budget of at most two hours")
+    if c["task"] == "nominal" and (not c.get("bc_updates") or c.get("estimator", "pathwise") != "pathwise"):
+        raise ValueError("S3 requires behavior cloning and deterministic pathwise policy updates")
     for name in ("iterations", "cpu_threads", "collect_episodes", "fifo_episodes", "wm_batch", "wm_updates",
                  "imagined_batch", "actor_updates", "actor_width", "critic_width", "critic_epochs",
                  "horizon", "validate_every"):
@@ -169,7 +175,56 @@ def _recover_rng(saved, rng, device):
         torch.mps.set_rng_state(saved["device_rng"])
 
 
-def _publish_files(out, progress, improved):
+def _hardware(device):
+    cpu = platform.processor() or platform.machine()
+    if sys.platform == "darwin":
+        probe = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True, text=True)
+        cpu = probe.stdout.strip() or cpu
+    elif Path("/proc/cpuinfo").is_file():
+        for line in Path("/proc/cpuinfo").read_text().splitlines():
+            if line.startswith("model name"):
+                cpu = line.partition(":")[2].strip()
+                break
+    accelerator = torch.cuda.get_device_name(device) if device.type == "cuda" else None
+    return {"cpu": cpu, "device": str(device), "accelerator": accelerator}
+
+
+def _select_online(row, progress, is_nominal):
+    if not is_nominal:
+        return row["safe_landing_rate"] > progress["best_rate"]
+    if not math.isfinite(row["mean_return"]):
+        raise ValueError("nonfinite nominal validation return")
+    candidate = (row["safe_landing_rate"], row["mean_return"], row["iteration"])
+    previous = (progress["best_rate"], progress.get("best_mean_return", -math.inf),
+                progress["best_iteration"] if progress["best_iteration"] is not None else -1)
+    return candidate > previous
+
+
+def _save_evaluation_point(out, progress, snapshot):
+    """Keep the original simulator episodes and the matching inference weights for each S3 validation."""
+    if "latest_nominal_validation" not in progress:
+        return
+    row = progress["validations"][-1]
+    if row["iteration"] != progress["iteration"]:
+        return
+    phase = row["phase"]
+    name = f"online-{row['iteration']:06d}" if phase == "online" else phase.replace("_", "-")
+    folder = out / "validation"
+    folder.mkdir(exist_ok=True)
+    result = dict(progress["latest_nominal_validation"], phase=phase, iteration=row["iteration"])
+    _write_json(folder / (name + ".json"), result)
+    if phase == "online":
+        fields = ("policy_schema_version", "interface_spec", "actor_spec", "actor", "training_schema", "wm_arch",
+                  "provenance", "world_model", "critic")
+        frozen = {k: snapshot[k] for k in fields}
+        frozen["progress"] = {k: progress[k] for k in ("iteration", "env_steps", "actor_updates", "model_updates")}
+        target = out / "checkpoints" / (name + ".pt")
+        tmp = target.with_suffix(".tmp")
+        torch.save(frozen, tmp)
+        tmp.replace(target)
+
+
+def _publish_files(out, progress, improved, snapshot):
     # latest.pt is the single commit point. Replay publication after interruption
     # repairs either log or a missing new best without a duplicate validation point.
     filenames = ["best.pt"] if improved else []
@@ -184,6 +239,7 @@ def _publish_files(out, progress, improved):
         tmp = target.with_suffix(".tmp")
         shutil.copyfile(out / "checkpoints" / "latest.pt", tmp)
         tmp.replace(target)
+    _save_evaluation_point(out, progress, snapshot)
     _write_json(out / "metrics.jsonl", progress["metrics"], lines=True)
     _write_json(out / "validation.jsonl", progress["validations"], lines=True)
 
@@ -230,8 +286,14 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
     rng = np.random.default_rng(seed)
     out = Path(out)
     prefill, meta = load_dataset(prefill_path)
-    manifest = load_validation(validation_path)
-    if meta["manifest"].get("diagnostic") != "vertical" or any(np.any(ep.action[:, 1:]) for ep in prefill.episodes):
+    is_nominal = c["task"] == "nominal"
+    if is_nominal:
+        manifest = nominal.load_manifest(validation_path, "validation")
+        if meta["manifest"].get("diagnostic") is not None:
+            raise ValueError("S3 requires full nominal simulator prefill episodes")
+    else:
+        manifest = load_validation(validation_path)
+    if not is_nominal and (meta["manifest"].get("diagnostic") != "vertical" or any(np.any(ep.action[:, 1:]) for ep in prefill.episodes)):
         raise ValueError("S2 requires vertical prefill episodes")
     if {s["seed"] for s in manifest["starts"]}.intersection(meta["reset_seeds"]):
         raise ValueError("prefill overlaps the validation manifest")
@@ -240,7 +302,7 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
     wm_arch = {k:initial["config"].get(k, False) for k in ("width", "event_weight", "kinematic", "contact_margin")}
     static = EpisodeWindows(prefill, meta, spec, device)
     near_static = _near(static, spec, c)
-    actor = Actor(c["actor_width"], vertical_only=True, yaw_invariant=c.get("yaw_invariant", False)).to(device)
+    actor = Actor(c["actor_width"], vertical_only=not is_nominal, yaw_invariant=c.get("yaw_invariant", False)).to(device)
     critic = Critic(c["critic_width"], c["value_scale"], upper_bound=c.get("critic_upper_bound"),
                     yaw_invariant=c.get("yaw_invariant", False)).to(device)
     policy = Policy(actor, spec)
@@ -285,12 +347,17 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
         outcomes = saved["fifo_provenance"]
         progress = saved["progress"]
         _recover_rng(saved, rng, device)
-        _publish_files(out, progress, progress["best_iteration"] == progress["iteration"])
+        _publish_files(out, progress, progress["best_iteration"] == progress["iteration"], saved)
     else:
         checkpoints.mkdir(exist_ok=True)
         _write_json(out / "config.json", dict(provenance, code=code_version(), training_source_sha256=file_hash(Path(__file__)), wm_arch=wm_arch,
+                                               hardware=_hardware(device),
                                                prefill_path=str(prefill_path), validation_path=str(validation_path),
                                                world_model_path=str(world_model_path)))
+    if is_nominal:
+        print(f"Nominal simulator training, seed {seed}, hardware {_hardware(device)}", file=sys.stderr, flush=True)
+    collect_batch = nominal.collect_policy if is_nominal else collect_policy
+    evaluate_policy = nominal.evaluate_nominal if is_nominal else evaluate_vertical
     prior_time = progress["elapsed_s"]
     def elapsed():
         return prior_time + time.monotonic() - began
@@ -321,10 +388,12 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
         tmp = latest.with_suffix(".tmp")
         torch.save(state, tmp)
         tmp.replace(latest)
-        _publish_files(out, progress, improved)
+        _publish_files(out, progress, improved, state)
 
     def validate(iteration, phase="online"):
-        result = evaluate_vertical(timed_policy, manifest)
+        result = evaluate_policy(timed_policy, manifest)
+        if is_nominal:
+            progress["latest_nominal_validation"] = result
         row = {k:v for k,v in result.items() if k not in ("config", "controller_config", "episodes")}
         row.update(iteration=iteration, elapsed_s=elapsed(),
                    **{k:progress[k] for k in ("env_steps","actor_updates","model_updates")})
@@ -337,8 +406,10 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
             progress["bc_only_rate"] = row["safe_landing_rate"]
             progress["bc_validation"] = result
             return False
-        if row["safe_landing_rate"] <= progress["best_rate"]:
+        if not _select_online(row, progress, is_nominal):
             return False
+        if is_nominal:
+            progress["best_mean_return"] = row["mean_return"]
         progress.update(best_rate=row["safe_landing_rate"], best_iteration=iteration)
         return True
 
@@ -355,11 +426,13 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
             commit(0, False)
 
         for iteration in range(progress["iteration"] + 1, c["iterations"] + 1):
-            if progress["best_rate"] >= .80:
+            if not is_nominal and progress["best_rate"] >= .80:
                 break
             check_budget()
             collect_seed = seed * 1_000_000 + iteration
-            batch, record = collect_policy(collection_policy, seed=collect_seed, episodes=c["collect_episodes"], noise_std=c["noise_std"])
+            collecting_since = time.monotonic()
+            batch, record = collect_batch(collection_policy, seed=collect_seed, episodes=c["collect_episodes"], noise_std=c["noise_std"])
+            env_hz = record["env_steps"] / (time.monotonic() - collecting_since)
             fifo.extend(batch.episodes)
             outcomes.extend(record["episode_provenance"])
             fifo = fifo[-c["fifo_episodes"]:]
@@ -395,11 +468,14 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
                 progress["actor_updates"] += 1
             actor_hz = c["actor_updates"]/(time.monotonic()-gradient_time)
             row = dict(totals, iteration=iteration, elapsed_s=elapsed(), actor_updates_per_second=actor_hz,
-                       model_updates_per_second=wm_hz,
+                       model_updates_per_second=wm_hz, collection_env_steps_per_second=env_hz,
                        env_steps=progress["env_steps"], actor_updates=progress["actor_updates"],
                        model_updates=progress["model_updates"], collect_seed=collect_seed,
                        collect_status_counts=record["status_counts"], fifo_size=len(fifo),
                        collection_steps=record["env_steps"], fifo_status_counts=dict(Counter(r["status"] for r in outcomes)))
+            if is_nominal and iteration == 1:
+                print(f"Collection {env_hz:.1f} env steps/s; model {wm_hz:.1f} and actor {actor_hz:.1f} updates/s",
+                      file=sys.stderr, flush=True)
             progress["metrics"].append(row)
             due = (iteration % c["validate_every"] == 0 or iteration == c["iterations"]
                    or (iteration == 1 and c.get("bc_updates", 0) > 0))
@@ -414,13 +490,23 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
         tmp = latest.with_suffix(".tmp")
         torch.save(saved, tmp)
         tmp.replace(latest)
-        _publish_files(out, progress, progress["best_iteration"] == progress["iteration"])
-    summary = {k:v for k,v in progress.items() if k not in ("metrics","validations","bc_validation")}
+        _publish_files(out, progress, progress["best_iteration"] == progress["iteration"], saved)
+    summary = {k:v for k,v in progress.items() if k not in ("metrics","validations","bc_validation","latest_nominal_validation")}
     summary["first_passing_validation"] = next((v for v in progress["validations"] if v["actor_updates"] > 0 and v["safe_landing_rate"] >= .8), None)
     summary["threshold_on_supplied_manifest"] = progress["best_rate"] >= .80
-    official = _official_validation(manifest)
-    summary["official_validation"] = official
-    summary["passed"] = official and summary["threshold_on_supplied_manifest"]
+    if is_nominal:
+        # Selection sees validation only. S3 acceptance also requires frozen test and BC comparisons.
+        summary["selection_order"] = ["safe_landing_rate", "mean_return", "iteration"]
+        summary["completed_fixed_iterations"] = progress["iteration"] == c["iterations"]
+        summary["passed"] = None
+        summary["validation_passed_vs_bc"] = bool(
+            progress["best_iteration"] is not None and summary["threshold_on_supplied_manifest"]
+            and progress["best_rate"] >= progress["bc_only_rate"]
+            and progress["best_mean_return"] > progress["bc_validation"]["mean_return"])
+    else:
+        official = _official_validation(manifest)
+        summary["official_validation"] = official
+        summary["passed"] = official and summary["threshold_on_supplied_manifest"]
     summary["time_budget_s"] = c["max_seconds"]
     _write_json(out / "summary.json", summary)
     return summary

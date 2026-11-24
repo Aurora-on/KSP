@@ -10,7 +10,7 @@ from .task_reward import task_reward
 
 
 def yaw_canonical_state(state):
-    """Express world vectors in a horizontal heading frame for the vertical diagnostic."""
+    """Express world vectors in the lander heading frame; angular velocity and RCS axes are body-fixed."""
     # Position, velocity and the two rotation columns all transform under a
     # rotation about world z. Angular velocity is in the body frame.
     vectors = state[..., :12].reshape(*state.shape[:-1], 4, 3)
@@ -31,8 +31,6 @@ class Actor(nn.Module):
         super().__init__()
         self.width = width
         self.vertical_only = vertical_only
-        if yaw_invariant and not vertical_only:
-            raise ValueError("yaw-invariant policy is scoped to the vertical diagnostic")
         self.yaw_invariant = yaw_invariant
         self.network = mlp(18, width, 2, 4)
         nn.init.uniform_(self.network[-1].weight, -.003, .003)

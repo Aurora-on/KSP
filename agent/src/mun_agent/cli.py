@@ -87,9 +87,12 @@ def main(argv=None):
     gather = commands.add_parser("collect", help="collect nominal simulator episodes on CPU")
     common_options(gather)
     gather.add_argument("--episodes", type=int, help="override the collection size")
-    train = commands.add_parser("train", help="fit the RSSM baseline offline on collected replay")
+    train = commands.add_parser("train", help="train an online landing policy or fit the offline RSSM baseline")
     common_options(train)
     train.add_argument("--data", type=Path, required=True)
+    train.add_argument("--world-model", type=Path, help="S1 checkpoint for online policy training")
+    train.add_argument("--validation", type=Path, help="frozen policy validation manifest")
+    train.add_argument("--resume", action="store_true", help="continue an online policy training run")
     train.add_argument("--set", action="append", default=[], metavar="section.key=value")
     fit_det = commands.add_parser("fit-deterministic", help="fit the residual model and select on development replay")
     common_options(fit_det)
@@ -109,6 +112,14 @@ def main(argv=None):
         print(json.dumps(args.handler(args), allow_nan=False))
         return
     settings = json.loads(args.config.read_text(encoding="utf-8"))
+    if args.command == "train" and isinstance(settings, dict) and settings.get("task") in ("nominal", "vertical"):
+        from .policy_commands import train_policy_command
+        if args.world_model is None or args.validation is None:
+            parser.error("online policy training requires --world-model and --validation")
+        print(json.dumps(train_policy_command(args), allow_nan=False))
+        return
+    if args.command == "train" and (args.world_model or args.validation or args.resume):
+        parser.error("policy training options require a policy training configuration")
     if args.command == "wm-report" and "config" in settings and "code" in settings:
         settings = settings["config"]
     sections = {"collect", "model", "fit"}

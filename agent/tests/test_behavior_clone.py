@@ -44,3 +44,17 @@ def test_clone_samples_uniformly_when_demonstrations_stay_airborne():
                         np.random.default_rng(2), lambda: None)
     assert summary["selected_near_transitions"] == 0
     assert np.isfinite(summary["probe_mae_after"])
+
+
+def test_nominal_clone_fits_every_body_torque_channel():
+    torch.manual_seed(31)
+    actor = Actor(width=16, vertical_only=False, yaw_invariant=True)
+    state = torch.zeros(10, 18)
+    state[:, 6] = state[:, 10] = 1.
+    state[::2, 2] = 3.
+    action = torch.tensor([-.25, .36, -.55, .18]).expand(10, 4)
+    static = SimpleNamespace(current=state, actions=action, offsets=np.array([0]), lengths=np.array([10]))
+    metadata = {"episode_provenance": [{"controller": "scripted", "noise_std": 0.}]}
+    fit_clone(actor, static, metadata, {"bc_updates": 100, "bc_batch": 16, "bc_lr": .01},
+              np.random.default_rng(31), lambda: None)
+    torch.testing.assert_close(actor(state), action, atol=.03, rtol=0.)

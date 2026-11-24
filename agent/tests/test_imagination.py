@@ -133,7 +133,8 @@ def test_optional_critic_bound_preserves_negative_tail_and_checkpoint_keys():
 
 
 @pytest.mark.parametrize("vertical_first_column", [False, True])
-def test_yaw_frame_changes_neither_actor_nor_critic(vertical_first_column):
+@pytest.mark.parametrize("vertical_only", [False, True])
+def test_yaw_frame_changes_neither_actor_nor_critic(vertical_first_column, vertical_only):
     from mun_agent.imagination import yaw_canonical_state
     torch.manual_seed(73)
     state = torch.randn(10, 18)
@@ -146,7 +147,9 @@ def test_yaw_frame_changes_neither_actor_nor_critic(vertical_first_column):
         rotated[:, i:i + 1] = x * angle.cos() - y * angle.sin()
         rotated[:, i + 1:i + 2] = x * angle.sin() + y * angle.cos()
     torch.testing.assert_close(yaw_canonical_state(rotated), yaw_canonical_state(state))
-    actor = Actor(width=16, yaw_invariant=True)
+    actor = Actor(width=16, vertical_only=vertical_only, yaw_invariant=True)
+    if not vertical_only:
+        assert torch.all(actor(state)[:, 1:].abs().sum(0) > 0)
     critic = Critic(width=16, yaw_invariant=True)
     nn.init.normal_(critic.network[-1].weight)
     for net in (actor, critic):
