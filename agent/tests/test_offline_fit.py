@@ -44,6 +44,15 @@ def test_offline_fit_checkpoint_and_heldout_report(tmp_path):
     results = json.loads(report.read_text())
     assert results["fit_seed"] == 31
     assert results["heldout_manifest_sha256"] != results["train_manifest_sha256"]
+    diagnostic = tmp_path / "train-report.json"
+    train_options = ["wm-report", "--config", str(run / "config.json"), "--checkpoint", str(checkpoint),
+                     "--device", "cpu", "--out", str(diagnostic), "--training-diagnostic"]
+    with pytest.raises(SystemExit):
+        main([*train_options, "--data", str(heldout)])
+    main([*train_options, "--data", str(train_data)])
+    train_results = json.loads(diagnostic.read_text())
+    assert train_results["dataset_role"] == "training" and not train_results["acceptance"]["pass"]
+    assert train_results["training_replay_sha256"] == saved["train_replay_sha256"]
     for horizon in ("1", "5", "15", "50"):
         events = results["horizons"][horizon]["terminal"]
         assert events["tp"] + events["fn"] == 2

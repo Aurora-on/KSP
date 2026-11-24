@@ -17,7 +17,7 @@ Linux CPU 环境先安装官方 CPU 构建。macOS arm64 可直接进入下一�
 python -m pip install --index-url https://download.pytorch.org/whl/cpu 'torch==2.15.0'
 ```
 
-安装本仓库的模拟器、智能体和测试依赖，然后运行导入测试。约束文件沿用仓库固定版本。
+安装本仓库的模拟器、智能体和测试依赖，然后运行智能体测试。约束文件沿用仓库固定版本。
 
 ```sh
 python -m pip install -c requirements/runtime.txt -e ./simulator -e './agent[dev]'
@@ -25,24 +25,55 @@ python -m pip check
 python -m pytest agent/tests -q
 ```
 
-## 采集模拟器回合
+## 采集 M2R 回放
 
-在仓库根目录运行以下命令。输出目录由命令创建，包含回放 `replay.npz` 和 `collection.json`。后者记录实际初态清单、哈希、每回合控制器与噪声档位。采集始终在 CPU 上运行。可用 `--episodes` 覆盖配置的回合数。
-
-```sh
-mun-agent collect --config agent/configs/debug.json --seed 17 --device cpu --out agent/data/m1-train
-```
-
-## 拟合世界模型并检查开环预测
-
-M2 的 `train --data` 从已采集的回放离线训练世界模型。以下命令接续上面的采集示例。用另一个采集种子生成完整留出回合。报告命令会检查留出初态与训练初态是否重叠，并核对清单哈希、回放文件、模型规模和环境接口。
+以下命令从仓库根目录运行。三份数据分别用于拟合、开发时选方案和最终质量验收。每份都从模拟器的 `train` 划分生成完整回合，采集根种子不同。策略阶段的固定验证与测试清单另行使用。
 
 ```sh
-mun-agent collect --config agent/configs/debug.json --seed 18 --device cpu --out agent/data/m2-heldout
-mun-agent train --config agent/configs/debug.json --seed 31 --device cpu --data agent/data/m1-train --out agent/runs/m2-debug
-mun-agent wm-report --config agent/configs/debug.json --device cpu --data agent/data/m2-heldout --checkpoint agent/runs/m2-debug/world_model.pt --out agent/runs/m2-debug/wm-report.json
+mun-agent collect --config agent/configs/base.json --device cpu --seed 170 --out agent/data/m2r-train
+mun-agent collect --config agent/configs/base.json --device cpu --seed 180 --episodes 50 --out agent/data/m2r-dev
+mun-agent collect --config agent/configs/base.json --device cpu --seed 190 --episodes 50 --out agent/data/m2r-heldout
 ```
 
-`debug.json` 用于 CPU 冒烟测试。`base.json` 使用 256 维确定性状态、16 组各 16 类的潜变量和 16×64 的回放批次。配置中的 `fit.updates` 为离线梯度更新次数，可在训练命令末尾添加 `--set fit.updates=500` 覆盖。模型训练和诊断支持 `auto|cpu|mps|cuda`，`auto` 依次选择 CUDA、MPS、CPU。
+`base.json` 默认采集 200 回合，其中 60% 用硬着陆扰动，5% 用随机动作，其余在脚本动作上添加标准差 0、0.05、0.1、0.2 的高斯噪声。采集在 CPU 上执行。命令打印步数、清单哈希和各结局计数。输出目录包含原生数据 `replay.npz` 和 `collection.json`，后者记录初态清单、扰动参数及种子、每回合的结局、首次触地总速度（m/s）和倾角（°）。未触地回合的两项触地指标为 `null`。已有输出目录会被拒绝覆盖。
 
-运行目录包含完整配置与代码版本、逐次更新的损失、拟合前后在同一训练回放探针批次上的确定性损失，以及可跨设备加载的模型检查点。报告在整份留出回放上使用确定性潜状态，枚举每个可用起点，`--seed` 不影响诊断值。正式策略验证和测试清单留待策略阶段使用。
+## 离线拟合与开发诊断
+
+`train --data` 使用指定回放目录中的全部回合。调整 `collect.episodes` 影响下一次采集。下例复现短拟合 A。CPU 冒烟可改用 `debug.json` 并缩短更新数。
+
+```sh
+mun-agent train --config agent/configs/base.json --data agent/data/m2r-train --seed 31 \
+  --device cpu --out agent/runs/m2r-short-A --set fit.length=32 --set fit.updates=2000 --set fit.checkpoint_every=1000
+mun-agent wm-report --config agent/runs/m2r-short-A/config.json --device cpu --data agent/data/m2r-dev \
+  --checkpoint agent/runs/m2r-short-A/world_model.pt --out agent/runs/m2r-short-A/dev.json
+```
+
+复现短拟合 B 时使用相同数据、种子、批量和更新预算，另选输出目录并指定以下模型参数。
+
+```sh
+mun-agent train --config agent/configs/base.json --data agent/data/m2r-train --seed 31 \
+  --device cpu --out agent/runs/m2r-short-B --set fit.length=32 --set fit.updates=2000 \
+  --set fit.checkpoint_every=1000 --set model.stoch=32 --set model.classes=32 \
+  --set model.dynamics_scale=0.5 --set model.representation_scale=0.03 \
+  --set model.event_weight=40 --set model.ground_history=true
+```
+
+`--set section.key=value` 可多次使用，值采用 JSON 语法。用 `fit.updates` 指定更新预算，用 `fit.max_seconds` 指定墙钟预算（默认 7140 秒，上限 7200 秒）；拟合在达到任一预算后保存 `world_model.pt`。当 `fit.checkpoint_every` 为正数时，还会保存第 0 次及每隔指定更新数的 `step-XXXXXX.pt`，可逐个运行报告以查看误差随训练的变化。`config.json` 记录实际训练回合数、数值配置、设备、代码版本、种子和数据哈希。`metrics.jsonl` 记录每次更新，`summary.json` 给出同一批训练样本在拟合前后的各项探针损失及实际更新数。拟合和报告支持 `auto|cpu|mps|cuda`；`auto` 按 CUDA、MPS、CPU 的顺序选择。
+
+## 最终质量验收
+
+长拟合采用短拟合 B 的模型参数和种子 31，重新初始化。复现时将 B 命令的输出改为 `agent/runs/m2r-long-B`，更新数改为 `--set fit.updates=180000`，快照间隔改为 `--set fit.checkpoint_every=4000`，墙钟预算为 `--set fit.max_seconds=7140`。
+
+在开发集上选定检查点后，将环境变量 `selected_checkpoint` 设为该文件的实际路径（`step-XXXXXX.pt` 或 `world_model.pt`），在最终留出集运行一次报告。
+
+```sh
+run_dir=agent/runs/m2r-long-B
+mun-agent wm-report --config "$run_dir/config.json" --device cpu --data agent/data/m2r-heldout \
+  --checkpoint "${selected_checkpoint:?需指定开发集选定的检查点}" --out "$run_dir/heldout.json"
+```
+
+报告核对模型配置、环境接口、清单和回放哈希。默认模式要求数据与训练初态种子无重叠。若要诊断训练集欠拟合，传入 `--training-diagnostic` 和原始训练目录，该模式核对训练回放 SHA-256。两种模式都可用运行目录的 `config.json`；它保留了实际生效的 `--set model.*`。报告为确定性计算，`--seed` 不改变结果。
+
+JSON 的 `posterior` 和 `horizons` 分别提供后验重建和分时距预测统计，两者各自的 `near_ground` 只取真实端点高度低于 10 m 的样本。`terminal_episodes` 保存逐回合终止奖励与终止前 15 步开环结果。`gates` 给出 G1–G5 明细。M2R 验收使用至少 50 个最终留出回合，要求全部门槛通过。[方法说明](docs/METHOD.md) · [验证记录](../docs/validation.md)
+
+加载器支持 schema 1、2、3，按文件记录的坐标尺度和奖励头读取旧权重。旧回放没有真实结局标签时，相应的 G4 判定为 `null`；旧检查点缺少训练均值时，该基线也为 `null`。

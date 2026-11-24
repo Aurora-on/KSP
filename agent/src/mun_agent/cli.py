@@ -39,8 +39,12 @@ def main(argv=None):
     common_options(report)
     report.add_argument("--checkpoint", type=Path, required=True)
     report.add_argument("--data", type=Path, required=True, help="independent held-out collection")
+    report.add_argument("--training-diagnostic", action="store_true",
+                        help="score the checkpoint's exact training replay and label it as training")
     args = parser.parse_args(argv)
     settings = json.loads(args.config.read_text(encoding="utf-8"))
+    if args.command == "wm-report" and "config" in settings and "code" in settings:
+        settings = settings["config"]
     sections = {"collect", "model", "fit"}
     if (not isinstance(settings, dict) or not set(settings) <= sections
             or not all(isinstance(value, dict) for value in settings.values())):
@@ -70,20 +74,26 @@ def main(argv=None):
         else:
             from .wm_report import open_loop_report
             model, checkpoint = load_world_model(args.checkpoint, device, SimConfig())
-            if settings["model"] != checkpoint["config"]["model"]:
+            defaults = dict(ground_history=False, event_weight=1., free_nats=1.,
+                            dynamics_scale=1., representation_scale=.1)
+            if (defaults | settings["model"]) != (defaults | checkpoint["config"]["model"]):
                 parser.error("report model configuration differs from checkpoint")
             replay, metadata = load_dataset(args.data)
             starts = {s["seed"] for s in metadata["manifest"]["starts"]}
-            if starts.intersection(checkpoint["train_reset_seeds"]):
+            if args.training_diagnostic and metadata["replay_sha256"] != checkpoint["train_replay_sha256"]:
+                parser.error("training diagnostic requires the checkpoint's exact training replay")
+            if not args.training_diagnostic and starts.intersection(checkpoint["train_reset_seeds"]):
                 parser.error("report requires held-out episodes with disjoint reset seeds")
             result = open_loop_report(model, replay, checkpoint["interface"],
                                       train_mean=checkpoint.get("train_mean"),
                                       provenance=metadata["episode_provenance"])
-            result.update(device=str(device), checkpoint_sha256=file_hash(args.checkpoint),
+            role = "training" if args.training_diagnostic else "heldout"
+            result["acceptance"]["pass"] &= not args.training_diagnostic
+            result.update(dataset_role=role, device=str(device), checkpoint_sha256=file_hash(args.checkpoint),
                           fit_seed=checkpoint["seed"], collection_seed=metadata["seed"],
                           train_manifest_sha256=checkpoint["train_manifest_sha256"],
-                          heldout_manifest_sha256=metadata["train_manifest_sha256"],
-                          heldout_replay_sha256=metadata["replay_sha256"])
+                          **{f"{role}_manifest_sha256": metadata["train_manifest_sha256"],
+                             f"{role}_replay_sha256": metadata["replay_sha256"]})
             args.out.parent.mkdir(parents=True, exist_ok=True)
             with args.out.open("x", encoding="utf-8") as output:
                 output.write(json.dumps(result, indent=2, allow_nan=False) + "\n")
