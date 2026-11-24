@@ -1,0 +1,7 @@
+{
+  "collect": {
+    "episodes": 64,
+    "noise_levels": [0.0, 0.05, 0.1, 0.2],
+    "random_fraction": 0.125
+  }
+}

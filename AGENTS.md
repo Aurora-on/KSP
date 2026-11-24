@@ -3,8 +3,8 @@
 ## Project status
 
 The standalone 6DOF simulator in `simulator/` provides the landing environment,
-scripted controller and evaluation tools. The M0 package in `agent/` installs as
-`mun-agent` and imports as `mun_agent`. World-model training, KSP landing
+scripted controller and evaluation tools. The `mun-agent` package provides simulator observation transforms,
+uniform transition sampling and demonstration collection. World-model training, KSP landing
 integration and the RQ1–RQ3 experiments are pending.
 Do not claim results that are not recorded in `docs/validation.md`.
 

@@ -24,3 +24,11 @@ python -m pip install -c requirements/runtime.txt -e ./simulator -e './agent[dev
 python -m pip check
 python -m pytest agent/tests -q
 ```
+
+## 采集模拟器回合
+
+在仓库根目录运行以下命令。输出目录由命令创建，包含回放 `replay.npz` 和 `collection.json`。后者记录实际初态清单、哈希、每回合控制器与噪声档位。采集始终在 CPU 上运行。可用 `--episodes` 覆盖配置的回合数。
+
+```sh
+mun-agent collect --config agent/configs/debug.json --seed 17 --device cpu --out agent/data/m1-train
+```
