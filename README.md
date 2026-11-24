@@ -13,7 +13,7 @@ World Models for Lunar Landing in Kerbal Space Program
 
 ## 已有内容
 
-- 智能体支持模拟器演示采集、回合回放、RSSM 离线训练与开环诊断。[安装与使用说明](agent/README.md)
+- 智能体支持模拟器演示采集、回合回放、确定性残差模型拟合、事件与回报诊断，以及 RSSM 对照。[安装与使用说明](agent/README.md)
 - [六自由度着陆模拟器](simulator/README.md)：变质量动力学、RCS 姿态控制、Gymnasium 接口、脚本控制器、可复现初态与参数扫描；仓库版稳定窗口为 5 s。
 - KSP 1.12.5 + kRPC 0.7.0 的只读诊断、遥测记录及显式灯光控制测试。
 - `ksp_env/` 可导入适配器骨架：连接、配置、诊断状态读取；任务观测、reset/step 仍受 TBD 决策阻塞，详见 [KSP 环境接口](docs/ksp-env.md)。
@@ -80,7 +80,7 @@ uv pip install --python .venv/bin/python \
 ## 仓库结构
 
 ```text
-agent/         模拟器演示采集、回放、RSSM 拟合与开环诊断
+agent/         模拟器回放、确定性世界模型、RSSM 对照与开环诊断
 configs/       Mun 任务契约（数值 TBD）与 adapter 测试配置（非任务）
 docs/          proposal 对照、任务契约、实验协议、环境要求、验证记录与开发顺序
 ksp_env/       可导入的 KSP 环境接口（连接、观测、动作、reset/step 骨架）

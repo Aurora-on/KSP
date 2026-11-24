@@ -1,0 +1,14 @@
+{
+  "model_type": "deterministic",
+  "width": 256,
+  "event_weight": 40.0,
+  "length": 8,
+  "batch_size": 192,
+  "updates": 22500,
+  "learning_rate": 0.0002,
+  "max_seconds": 1650,
+  "checkpoint_every": 750,
+  "cpu_threads": 4,
+  "kinematic": true,
+  "contact_margin": true
+}

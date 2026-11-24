@@ -37,7 +37,33 @@ mun-agent collect --config agent/configs/base.json --device cpu --seed 190 --epi
 
 `base.json` 默认采集 200 回合，其中 60% 用硬着陆扰动，5% 用随机动作，其余在脚本动作上添加标准差 0、0.05、0.1、0.2 的高斯噪声。采集在 CPU 上执行。命令打印步数、清单哈希和各结局计数。输出目录包含原生数据 `replay.npz` 和 `collection.json`，后者记录初态清单、扰动参数及种子、每回合的结局、首次触地总速度（m/s）和倾角（°）。未触地回合的两项触地指标为 `null`。已有输出目录会被拒绝覆盖。
 
-## 离线拟合与开发诊断
+## S1 确定性世界模型
+
+从仓库根目录重新采集带实际步长的回放。三个初态清单对应 M2R 原有的训练、开发与留出集。早期回放仍可读取；奖励对拍需要带 `dt` 的回放。
+
+```sh
+mun-agent collect --config agent/configs/base.json --device cpu --seed 170 --out agent/data/s1-train
+mun-agent collect --config agent/configs/base.json --device cpu --seed 180 --episodes 50 --out agent/data/s1-dev
+mun-agent collect --config agent/configs/base.json --device cpu --seed 190 --episodes 50 --out agent/data/s1-heldout
+```
+
+下面的命令使用带接触裕度特征的模型。早期两次拟合分别使用 `agent/configs/s1.json` 和 `agent/configs/s1-kinematic.json`，输出目录依次为 `agent/runs/s1-seed31` 和 `agent/runs/s1-kinematic-seed31`。每次拟合只读取训练和开发集，开发集用于选择 `best.pt`。运行目录记录采集与拟合种子、数据哈希、实际更新数、耗时和开发集分数。
+
+```sh
+mun-agent fit-deterministic --config agent/configs/s1-contact.json --device cpu --seed 31 \
+  --data agent/data/s1-train --dev-data agent/data/s1-dev --out agent/runs/s1-contact-seed31
+```
+
+开发诊断和最终报告共用同一条命令，下例使用独立留出集。比较用 RSSM 权重见下文的正式长拟合 A。报告包括 1、5、15、32 步的四方对照（确定性、RSSM、持续不变、训练均值），W1–W6，逐回合事件和终止前回报，以及真实奖励对拍。正式 S1 验收用记录的清单、回放和 RSSM SHA-256 标识比较对象。传入其他回放也可生成完整诊断，查看各项 `gates` 和 `meets_gates_on_this_dataset`。每份报告使用新的输出路径。S2 才引入策略训练与着陆率评估。
+
+```sh
+mun-agent wm-report --config agent/runs/s1-contact-seed31/config.json --device cpu \
+  --data agent/data/s1-heldout --checkpoint agent/runs/s1-contact-seed31/best.pt \
+  --rssm-checkpoint agent/runs/m2r-long-A/step-028000.pt --benchmark agent/configs/s1-benchmark.json \
+  --out agent/runs/s1-contact-seed31/heldout.json
+```
+
+## RSSM 对照基线的离线拟合与开发诊断
 
 `train --data` 使用指定回放目录中的全部回合。调整 `collect.episodes` 影响下一次采集。下例复现短拟合 A。CPU 冒烟可改用 `debug.json` 并缩短更新数。
 

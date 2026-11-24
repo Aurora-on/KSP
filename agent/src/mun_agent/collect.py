@@ -44,6 +44,7 @@ def _collect_episode(env, start, controller, noise_std, hard_parameters):
     rng = np.random.default_rng([start["seed"], 1])
     obs, _ = env.reset(seed=start["seed"], options={"initial_state": start["initial_state"]})
     observations = [obs.copy()]
+    durations = []
     actions, rewards, terminations, truncations = [], [], [], []
     low, high = env.action_space.low, env.action_space.high
     controller.reset()
@@ -61,6 +62,7 @@ def _collect_episode(env, start, controller, noise_std, hard_parameters):
         observations.append(obs.copy())
         actions.append(info["applied_action"].copy())
         rewards.append(reward)
+        durations.append(info["dt"])
         terminations.append(terminated)
         truncations.append(truncated)
         if terminated or truncated:
@@ -72,6 +74,7 @@ def _collect_episode(env, start, controller, noise_std, hard_parameters):
         reward=np.asarray(rewards, dtype=np.float32),
         terminated=np.asarray(terminations, dtype=bool),
         truncated=np.asarray(truncations, dtype=bool),
+        dt=np.asarray(durations, dtype=np.float32),
     )
     # Diagnostics stay in the collection record, outside the training replay.
     touchdown = info.get("touchdown")

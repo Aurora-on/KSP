@@ -23,6 +23,26 @@ def interface_spec(config: SimConfig, *, ground_history=False, legacy=False) -> 
     return spec
 
 
+def deterministic_spec(config: SimConfig, ground_epsilon_m: float = 3e-6) -> dict:
+    """Observation-history contract for the 18-dimensional residual model.
+
+    The default lies below the smallest positive altitude in m2r-train
+    (7.19e-6 m). Legacy RSSM preprocessing retains its original semantics.
+    """
+    if isinstance(ground_epsilon_m, bool) or not np.isfinite(ground_epsilon_m) or ground_epsilon_m <= 0:
+        raise ValueError("ground_epsilon_m must be positive and finite")
+    spec = interface_spec(config, ground_history=True)
+    return dict(spec, ground_epsilon_m=float(ground_epsilon_m),
+                episode_step_cap=int(np.ceil(config.max_time / config.control_dt)))
+
+
+def validate_deterministic_spec(saved: dict, config: SimConfig) -> None:
+    if not isinstance(saved, dict) or "ground_epsilon_m" not in saved:
+        raise ValueError("missing deterministic state specification")
+    if saved != deterministic_spec(config, saved["ground_epsilon_m"]):
+        raise ValueError("deterministic state specification mismatch")
+
+
 def validate_interface_spec(saved: dict, config: SimConfig, *, ground_history=False, legacy=False) -> None:
     """Reject a checkpoint whose transforms or source simulator configuration differ."""
     expected = interface_spec(config, ground_history=ground_history, legacy=legacy)
@@ -68,7 +88,7 @@ def preprocess(obs, spec: dict) -> np.ndarray:
 
 
 def episode_features(obs, spec):
-    """Encode a complete episode, counting consecutive zero-clearance frames causally."""
+    """Encode a complete episode using the ground and clock rules in its contract."""
     features = preprocess(obs, spec)
     cap = spec.get("ground_history_cap", 0)
     if not cap:
@@ -76,8 +96,14 @@ def episode_features(obs, spec):
     if features.ndim != 2:
         raise ValueError("ground history requires one complete episode in temporal order")
     index = np.arange(1, len(obs) + 1)
-    last_air = np.maximum.accumulate(np.where(obs[:, 2] == 0, 0, index))
+    height = np.asarray(obs)[:, 2]
+    ground = height < spec["ground_epsilon_m"] if "ground_epsilon_m" in spec else height == 0
+    last_air = np.maximum.accumulate(np.where(ground, 0, index))
     duration = np.minimum(index - last_air, cap).astype(np.float32) / cap
+    if "episode_step_cap" in spec:
+        step_cap = spec["episode_step_cap"]
+        clock = np.minimum(index - 1, step_cap).astype(np.float32) / step_cap
+        return np.column_stack((features, duration, clock))
     return np.column_stack((features, duration))
 
 

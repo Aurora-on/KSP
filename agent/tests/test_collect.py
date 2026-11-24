@@ -45,6 +45,7 @@ def test_collection_on_nominal_simulator():
             np.testing.assert_array_equal(ep.obs[t + 1], obs)
             np.testing.assert_array_equal(action, info["applied_action"])
             assert ep.reward[t] == np.float32(reward)
+            assert ep.dt[t] == np.float32(info["dt"])
             assert ep.terminated[t] == terminated and ep.truncated[t] == truncated
         assert terminated or truncated
         assert details["status"] == info["status"]
@@ -72,7 +73,7 @@ def test_action_and_outcome_metadata_remain_separate(monkeypatch):
 
         def step(self, action):
             assert not np.array_equal(action, applied)
-            return final.copy(), -50.0, False, True, {"applied_action": applied.copy(), "status": "timeout"}
+            return final.copy(), -50.0, False, True, {"applied_action": applied.copy(), "status": "timeout", "dt": 0.025}
 
         def close(self):
             pass
@@ -83,7 +84,7 @@ def test_action_and_outcome_metadata_remain_separate(monkeypatch):
     assert metadata["status_counts"] == {"timeout": 1}
     assert record["touchdown_speed"] is None and record["touchdown_tilt_deg"] is None
     ep = replay.episodes[0]
-    assert set(vars(ep)) == {"obs", "action", "reward", "terminated", "truncated"}
+    assert set(vars(ep)) == {"obs", "action", "reward", "terminated", "truncated", "dt"}
     np.testing.assert_array_equal(ep.action[0], applied)
     np.testing.assert_array_equal(ep.obs[-1], final)
     assert ep.truncated[-1] and not ep.terminated[-1]
