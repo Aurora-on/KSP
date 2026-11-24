@@ -1,5 +1,84 @@
 # Validation record
 
+## 2026-11-24 — S2 vertical simulator policy
+
+The frozen post-update actor safely landed on all 100 fixed vertical validation starts, above the 80% gate (Wilson 95% interval 96.30% to 100%). Behavior cloning alone also landed on all 100. The online update reduced fuel and flight time on every paired start, with a higher first-touchdown speed. This is a single training seed in the vertical simulator diagnostic. The nominal 6DOF test manifest and live KSP are outside this measurement.
+
+### Acceptance and selected checkpoints
+
+| Check | Measurement |
+| --- | --- |
+| End-to-end smoke | Real train-split collection, online eight-step model fitting, actor/critic updates, checkpoint loading, official simulator evaluation and interrupted-run recovery passed |
+| Initial untrained policy | 0/100 safe, 100 out of bounds |
+| Behavior cloning only | 100/100 safe, mean fuel 29.803 kg, flight time 33.043 s, undiscounted return 95.861 |
+| After one online iteration | 100/100 safe, mean fuel 23.917 kg, flight time 27.331 s, undiscounted return 96.564 |
+| Failed episode counts | Selected policy and clone each had zero crashes, timeouts, out-of-bounds episodes and fuel aborts. The selected checkpoint's failure-only `status_counts` is `{}` |
+| Single-run time limit | First eligible passing evaluation at 71.72 s on Apple M5 CPU, two threads, within the two-hour limit. The configured cutoff was 7,100 s |
+| Within-phase update rates | 75.18 world-model updates/s and 5.10 actor updates/s including associated critic fitting |
+
+Epoch-zero cloning and subsequent online validations used separate checkpoints. Reloading each produced exactly the recorded outcomes, fuel, flight times and returns on all 100 starts. Per-episode fuel savings ranged from 5.726 to 6.084 kg (mean 5.886 kg or 19.75%). Flights finished 5.559 to 5.931 s sooner. Mean first-touchdown speed rose from 0.567 to 1.233 m/s. The maximum after the update was 1.247 m/s against the simulator limit of 2.0 m/s. Horizontal error and RCS use are zero by construction in this task.
+
+### Inputs, code and training
+
+All seven configurations below used the same policy initialization seed 31 and frozen S1 world model. The vertical validation manifest projects 100 nominal validation starts (seed 2026) to zero horizontal position, horizontal velocity, tilt and angular rate, preserving altitude, vertical speed, yaw and fuel. Both simulated and imagined actions mask the three RCS channels. Evaluation uses the simulator's `evaluation.evaluate`, default `SimConfig` and a frozen file of initial states. Code rejects train/validation reset-seed overlap. Online collection seeds are `31 * 1,000,000 + iteration` on the train split.
+
+| Input or output | SHA-256 |
+| --- | --- |
+| S1 starting model | `cade1219d72c89bf5219690be3ec8a7837a09f4a681a1771a124d66a3fad7cff` |
+| Pretraining replay, vertical collection seed 230 | `5ebe8dcde9446577dca5085ecd825630e2d8c7e5606d77bf91986c7e3adea221` |
+| Vertical prefill manifest | `69e3fc0fc29828764f5b9ec30cc57ea4a3e6e0f6905d6038183c60a5f09c677d` |
+| Fixed vertical validation starts | `32d28afbb7e58f782aede7cb509e83111c141ae48d01a5762a3b957e1df39185` |
+| Behavior-cloning-only checkpoint | `7773bbc3b2e17a8017a81af09cee01acd40ae297e86333d04c27d5b589d019ec` |
+| Selected model, actor and critic | `cca47bd92f82c6c93e771fa2cbd489a6d5f138fec0129a4b85c489167eeea398` |
+
+The machine used Python 3.14.4, PyTorch 2.15.0 and NumPy 2.5.4. G ran on top of `89b8b6922f3547b2d511904eb64e8da58e752c1c` with warm-start changes. Its run-time SHA-256 for `train.py` was `77e1094f88b040554c759677924e7e75fe4ade59e99eb099399cf36fe5b82bc6`. A same-seed rerun from the committed implementation `5d4fce7d66baeb627f1fb3af941d54af9d5c5d77` and the published configuration passed in 71.06 s. All actor, critic and world-model tensors were bitwise identical to the selected run at both the cloning-only and the post-update checkpoints. The rerun outputs are in `agent/runs/s2-reproduce-G31/`.
+
+The permanent replay contained 67,962 transitions across 200 episodes (70 scripted, 120 hard-landing variants, 10 random). It included 87 safe landings, 99 crashes, 4 timeouts and 10 out-of-bounds episodes. G cloned 18,042 actions from 53 scripted episodes with noise standard deviation at most 0.1. Selection used behavior provenance, with no filter on episode outcome. Cloning used 6,000 Adam updates of batch 256, with half the batch sampled from below 10 m. One online cycle then collected six episodes (1,979 real transitions, all safe), fit the world model 40 times and updated the actor 30 times on 128 imagined trajectories per batch. Training used the simulator task reward and the S1 event calibration throughout.
+
+### Validation curves and fallback order
+
+Every validation point uses all 100 frozen starts. A through F had no cloning. Each row reports the last completed training iteration even when the last scheduled validation occurred earlier. Wall times are from the last saved iteration in interrupted runs. B and G completed normally.
+
+| Run on seed 31 | Change from its stated baseline | Completed / last evaluated iteration | Best safe count | Last evaluation statuses | Wall time (s) |
+| --- | --- | ---: | ---: | --- | ---: |
+| A, preliminary pathwise | Initial H=32, exploration σ=0.10. Stopped to clip the diagnostic-head gradient separately | 15 / 12 | 0 | 100 crash | 89.3 |
+| B, corrected pathwise | Corrected clipping, 50% permanent replay, 50% near-ground starts, actor LR 0.0002 | 90 / 90 | 35 | 100 timeout | 1,161.4 |
+| C, sampling | B with 85% permanent replay, 75% near-ground starts stratified by contact phase, exploration σ=0.15 | 19 / 16 | 0 | 100 out of bounds | 189.4 |
+| D, longer horizon | C with H=64, actor LR 0.0001 and a smooth +100 upper bound on critic output | 23 / 20 | 0 | 100 timeout | 391.6 |
+| E, heading invariance | D with actor and critic inputs rotated to a common horizontal heading | 39 / 36 | 0 | 100 timeout | 735.8 |
+| F, sampled gradient | E with advantage-weighted Gaussian score-function updates, tanh-input σ=0.30 for throttle | 48 / 48 | 0 | 100 crash | 456.5 |
+| G, cloning + pathwise | E with low-noise behavioral warm start, checkpoint selection begins after online updates | 1 / 1 | 100 | 100 safe | 71.7 |
+
+B's curve was 0/100 at iterations 0 through 24, 35/100 at 28 (173,931 real training transitions), 1/100 at 32 (194,533), then 0 at every four-iteration check through 88 and at 90 (507,733). At the selected B checkpoint, the 65 failures were all timeouts and 60 of them never touched down. G's curve was 0/100 untrained at 67,962 transitions, 100/100 after cloning at the *same* count, and 100/100 after online training at 69,941 transitions. Metrics count prefill and online training interactions, excluding validation rollouts and imagined steps.
+
+All C, D, E and F validation points scored zero. C's critic diverged outside the attainable reward range. D bounded optimistic values, while E's FIFO contained 119 timeouts out of 120 at the iteration-35 diagnostic. Its mean terminal-state critic prediction on those timeouts was −661 versus an observed return of −50. F was still at 0/100 at its planned iteration-36 fallback review, and its last 120 collected episodes all crashed (median first touchdown 13.99 m/s). The final F critic predicted +100 at the terminal origin of these trajectories against roughly −100 realized. The real/imagined comparison at B and the outcome diagnostics led to the sampled-gradient comparison and then the warm start. No event recalibration, initial-state curriculum or additional reward shaping was applied.
+
+### Frozen actor, paired 32-step returns
+
+A simulator rollout supplied an observation and its causal history at each window origin. Both branches then ran the selected deterministic actor independently, on their own resulting states. The simulator return is the undiscounted sum of environment rewards. Imagination uses the learned dynamics, the calibrated events and survival-weighted task reward, with no critic bootstrap. Each of the 100 episodes supplied one window for each phase. All 400 origins were evaluated.
+
+| Window | Count | Simulator mean | Imagined mean | Mean imagined − simulator | Mean absolute error |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Reset | 100 | −0.4150 | −0.3426 | +0.0724 | 0.0724 |
+| Mid-episode | 100 | −0.4995 | −0.4604 | +0.0391 | 0.0391 |
+| Around first touchdown | 100 | −0.2472 | −0.2295 | +0.0177 | 0.0177 |
+| Ending at episode termination | 100 | 99.9375 | 99.8738 | −0.0638 | 0.0638 |
+| All windows | 400 | 24.6940 | 24.7103 | +0.0163 | 0.0482 |
+
+B's selected actor also had a small closed-loop difference on its own validation trajectories (340 windows, signed gap −0.0020, MAE 0.0200), despite its 65 timeouts. Broader replay probes reveal larger errors. When following recorded actions on G's six noisy training episodes, the frozen model's 1-step position/speed errors were 0.002 m and 0.017 m/s, rising to 0.866 m and 0.558 m/s after 32 steps. On the full permanent replay, the 32-step errors were 1.284 m and 0.872 m/s. The mean predicted minus observed return over the terminal 32 recorded steps was −0.041 on the six online episodes and +46.117 on the mixed prefill. At the last prefill state before termination, mean critic predictions were +21.57 for safe trajectories and +10.77 for crashes, while realized rewards were approximately +100 and −100. Calibration on failure trajectories and long-horizon value estimation remain limitations.
+
+### Reproduction and local artifacts
+
+The [agent README](../agent/README.md) gives the exact `prepare-vertical`, `train-policy`, `evaluate-policy` and `plot` commands. [The method](../agent/docs/METHOD.md) describes the pathwise gradient, sampled fallback and cloning details. Run B with `agent/configs/diag_vertical_pathwise.json` and G with `agent/configs/diag_vertical.json`, both using `--seed 31 --device cpu`. Run the following command to plot both curves.
+
+```sh
+mun-agent plot --run agent/runs/s2-pathwise-B31 --run agent/runs/s2-clone-G31 --out agent/runs/s2-clone-G31/validation-curve.png
+```
+
+Within `agent/runs/s2-clone-G31/`, `checkpoints/{untrained,bc-only,best}.pt` stores the three stages, `validation.jsonl` contains their validation points, and `metrics.jsonl` records collection, update rates and losses. `best-eval.json` contains individual simulator episodes and paired return windows. `bc-only-eval.json` contains the independent clone evaluation, `bc-vs-g-paired.json` the matched changes, and `replay-diagnostics.json` the stratified model/critic probes. `policy-change.json` compares both actors on the same 67,962 observed origins. Native mean throttle fell by 0.0844 and changed by more than 0.01 on 77.6% of origins. The validation plot, training arrays and checkpoints are local artifacts excluded from Git.
+
+All four repository checks passed. Syntax compilation succeeded. Root unittest ran 28 tests (23 passed, 5 skipped), simulator pytest recorded 61 passes and one historical NumPy-version-specific skip, and agent pytest recorded 78 passes with one CUDA hardware skip. The S1 agent suite had 57 passing cases. The 22 additional cases cover both gradient estimators, derivatives through survival and terminal value, lambda returns, action projection and history, the fixed-manifest gate, clone selection, paired reports, staged curves and end-to-end recovery. The simulator emitted its two existing Gymnasium observation-bound warnings.
+
 ## 2026-11-24 — S1 deterministic simulator world model
 
 The frozen model passed W1, W2, W4 and W5 on the original 50 held-out simulator episodes. W3 and W6 have reporting requirements only. All trajectories use recorded simulator actions. No policy was trained or evaluated in S1.

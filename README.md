@@ -1,7 +1,7 @@
 # KSP
 World Models for Lunar Landing in Kerbal Space Program
 
-世界模型课程项目，目标是在 **Mun 动力下降着陆**任务中研究预训练、想象中的策略更新和物理参数泛化。仓库包含独立六自由度模拟器、任务约定和 KSP 诊断工具。确定性世界模型已在 50 个留出模拟器回合上通过 S1 的四项硬门槛，15 步开环位置误差为 0.089 m，终止前 15 步回报在 47/50 个回合达标。KSP 着陆环境对齐及策略训练仍待完成。[模型验证记录](docs/validation.md)
+世界模型课程项目，目标是在 **Mun 动力下降着陆**任务中研究预训练、想象中的策略更新和物理参数泛化。仓库包含独立六自由度模拟器、任务约定和 KSP 诊断工具。确定性世界模型已在 50 个留出模拟器回合上通过 S1 的四项硬门槛，15 步开环位置误差为 0.089 m，终止前 15 步回报在 47/50 个回合达标。S2 的行为克隆策略和经一轮想象更新的策略，在固定的 100 个垂直初态上均全部安全着陆，平均耗料分别为 29.80 kg 和 23.92 kg。完整六自由度策略训练及 KSP 着陆环境对齐仍待完成。[模拟器验证记录](docs/validation.md)
 
 ## Proposal 对应的研究问题
 
@@ -13,7 +13,7 @@ World Models for Lunar Landing in Kerbal Space Program
 
 ## 已有内容
 
-- 智能体支持模拟器演示采集、回合回放、确定性残差模型拟合、事件与回报诊断，以及 RSSM 对照。[安装与使用说明](agent/README.md)
+- 智能体支持模拟器演示采集、回合回放、确定性残差模型拟合、事件与回报诊断、垂直策略的采集与想象训练、固定清单评估及 RSSM 对照。[安装与使用说明](agent/README.md)
 - [六自由度着陆模拟器](simulator/README.md)：变质量动力学、RCS 姿态控制、Gymnasium 接口、脚本控制器、可复现初态与参数扫描；仓库版稳定窗口为 5 s。
 - KSP 1.12.5 + kRPC 0.7.0 的只读诊断、遥测记录及显式灯光控制测试。
 - `ksp_env/` 可导入适配器骨架：连接、配置、诊断状态读取；任务观测、reset/step 仍受 TBD 决策阻塞，详见 [KSP 环境接口](docs/ksp-env.md)。
@@ -23,7 +23,7 @@ World Models for Lunar Landing in Kerbal Space Program
 - 2×2 预训练/想象实验协议、RQ1–RQ3 评估口径、OOD 与数据预算规范。
 - GitHub Actions 在 Python 3.12 和 3.14 上检查语法、离线诊断和模拟器，并用固定版本的 CPU PyTorch 验证智能体安装与测试。
 
-2026-11-06 已在本机验证发射台 RPC、连续遥测和可恢复灯光控制；2026-11-17 记录 final proposal 的任务定性决策与实验协议。模拟器的独立验收见 [模拟器验证说明](simulator/docs/VALIDATION.md)，既有 KSP 证据见 [验证记录](docs/validation.md)。**Mun 初始下降场景、KSP 可重复 reset/step、实船安全阈值、两端接口校准、预训练与 RQ1–RQ3 实验仍待完成。** 模拟器的 pilot 数值没有填入共享任务配置中的 TBD；动作顺序、轴映射和精度指标差异见 [仓库接入说明](simulator/docs/REPOSITORY_INTEGRATION.md)。
+2026-11-06 已在本机验证发射台 RPC、连续遥测和可恢复灯光控制；2026-11-17 记录 final proposal 的任务定性决策与实验协议。模拟器的独立验收见 [模拟器验证说明](simulator/docs/VALIDATION.md)，既有 KSP 证据见 [验证记录](docs/validation.md)。**Mun 初始下降场景、KSP 可重复 reset/step、实船安全阈值、两端接口校准、完整六自由度策略预训练与 RQ1–RQ3 实验仍待完成。** 模拟器的 pilot 数值没有填入共享任务配置中的 TBD；动作顺序、轴映射和精度指标差异见 [仓库接入说明](simulator/docs/REPOSITORY_INTEGRATION.md)。
 
 ## 快速开始
 

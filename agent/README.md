@@ -1,6 +1,6 @@
 # Mun 着陆智能体
 
-`mun-agent` 用于在六自由度 Mun 着陆模拟器中开发和训练策略。当前可从模拟器采集演示数据、拟合世界模型，并在独立回合上检查多步预测。模拟器的原生输入输出见[接口说明](../simulator/docs/INTERFACES.md)，后续训练采用的约定见[方法说明](docs/METHOD.md)。
+`mun-agent` 用于在六自由度 Mun 着陆模拟器中开发和训练策略。当前可从模拟器采集演示数据、拟合世界模型、在独立回合上检查多步预测，以及训练和评估垂直着陆策略。模拟器的原生输入输出见[接口说明](../simulator/docs/INTERFACES.md)，后续训练采用的约定见[方法说明](docs/METHOD.md)。
 
 ## 安装与验证
 
@@ -36,6 +36,39 @@ mun-agent collect --config agent/configs/base.json --device cpu --seed 190 --epi
 ```
 
 `base.json` 默认采集 200 回合，其中 60% 用硬着陆扰动，5% 用随机动作，其余在脚本动作上添加标准差 0、0.05、0.1、0.2 的高斯噪声。采集在 CPU 上执行。命令打印步数、清单哈希和各结局计数。输出目录包含原生数据 `replay.npz` 和 `collection.json`，后者记录初态清单、扰动参数及种子、每回合的结局、首次触地总速度（m/s）和倾角（°）。未触地回合的两项触地指标为 `null`。已有输出目录会被拒绝覆盖。
+
+## S2 垂直着陆策略
+
+在仓库根目录生成诊断任务的预填充回放和固定验证清单。验证清单从名义配置的 validation 划分（种子 2026、100 个初态）做垂直投影生成，后续训练和评估从文件加载。正式六自由度清单独立保存。
+
+```sh
+mun-agent prepare-vertical --seed 230 --episodes 200 --out agent/data/s2-vertical-prefill \
+  --validation agent/data/s2-vertical-validation.json
+mun-agent train-policy --config agent/configs/diag_vertical.json --seed 31 --device cpu \
+  --data agent/data/s2-vertical-prefill --world-model agent/runs/s1-contact-seed31/best.pt \
+  --validation agent/data/s2-vertical-validation.json --out agent/runs/s2-clone-G31
+```
+
+该配置先在低噪声示范上做行为克隆，分别保存未训练和仅克隆的策略，再执行采集、世界模型拟合与想象策略更新。只有完成在线更新的验证点参与选择最佳策略。首次达到 80% 时结束。续训时给同一条训练命令追加 `--resume`，每个完整迭代都保存模型、优化器、在线回放和随机数状态。使用其 actor 和同一时刻的世界模型可以复现验证与 32 步想象回报对照。
+
+```sh
+mun-agent evaluate-policy --device cpu --checkpoint agent/runs/s2-clone-G31/checkpoints/best.pt \
+  --validation agent/data/s2-vertical-validation.json --paired-returns --out agent/runs/s2-clone-G31/best-eval.json
+mun-agent evaluate-policy --device cpu --checkpoint agent/runs/s2-clone-G31/checkpoints/bc-only.pt \
+  --validation agent/data/s2-vertical-validation.json --out agent/runs/s2-clone-G31/bc-only-eval.json
+mun-agent plot --run agent/runs/s2-clone-G31 --out agent/runs/s2-clone-G31/stages.png
+```
+
+要复现无行为克隆的基础对照，在训练命令中改用 `agent/configs/diag_vertical_pathwise.json` 并将输出设为 `agent/runs/s2-pathwise-B31`。生成两条曲线可运行 `mun-agent plot --run agent/runs/s2-pathwise-B31 --run agent/runs/s2-clone-G31 --out agent/runs/s2-clone-G31/validation-curve.png`。各输出命令使用新路径。
+
+`plot` 使用仓库已列入可选依赖的 Matplotlib，可通过 `python -m pip install -c requirements/runtime.txt matplotlib` 安装。要在模拟器中单独调用策略，可以使用 `from mun_agent.policy import load_policy` 加载 `policy = load_policy(path, device="cpu")`；每回合先调用 `policy.reset()`，然后将原生 14 维观测传给 `policy(obs)`，返回原生四通道动作。
+
+训练过程的诊断可以分别读取永久回放和检查点内的在线 FIFO。以下命令给出两个来源各自的开环物理误差、触地速度、critic 估值和真实回报。按结局分组的真实回报取自采集该轨迹的策略。
+
+```sh
+python -m mun_agent.policy_diagnostics --checkpoint agent/runs/s2-clone-G31/checkpoints/latest.pt \
+  --data agent/data/s2-vertical-prefill --out agent/runs/s2-clone-G31/replay-diagnostics.json
+```
 
 ## S1 确定性世界模型
 

@@ -5,7 +5,7 @@
 The standalone 6DOF simulator in `simulator/` provides the landing environment,
 scripted controller and evaluation tools. The `mun-agent` package provides simulator observation transforms,
 uniform transition sampling, demonstration collection, deterministic residual dynamics, event and reward evaluation, and
-an offline RSSM comparison. S1 passed its four required gates on 50 held-out simulator episodes. Policy training, KSP landing integration and the RQ1–RQ3 experiments are pending.
+an offline RSSM comparison. S1 passed its four required gates on 50 held-out simulator episodes. S2 passed its vertical simulator gate with 100/100 safe landings after a behavior-cloning warm start and one online imagination iteration. Cloning alone also scored 100/100 on the same starts. Full 6DOF policy training, KSP landing integration and the RQ1–RQ3 experiments are pending.
 Do not claim results that are not recorded in `docs/validation.md`.
 
 ## Read first
