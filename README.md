@@ -13,6 +13,7 @@ World Models for Lunar Landing in Kerbal Space Program
 
 ## 已有内容
 
+- M0 adds an installable Python package for learning on the standalone simulator. [Agent installation and import test](agent/README.md)
 - [六自由度着陆模拟器](simulator/README.md)：变质量动力学、RCS 姿态控制、Gymnasium 接口、脚本控制器、可复现初态与参数扫描；仓库版稳定窗口为 5 s。
 - KSP 1.12.5 + kRPC 0.7.0 的只读诊断、遥测记录及显式灯光控制测试。
 - `ksp_env/` 可导入适配器骨架：连接、配置、诊断状态读取；任务观测、reset/step 仍受 TBD 决策阻塞，详见 [KSP 环境接口](docs/ksp-env.md)。
@@ -20,7 +21,7 @@ World Models for Lunar Landing in Kerbal Space Program
 - 完全离线的依赖、CPU/MPS 运算和本地插件文件检查。
 - Mun 任务定性契约：固定 nominal 着陆器、重力和平坦站点，随机初始位置/速度/姿态，RCS + 主发动机控制，5 s 稳定性窗口；数值阈值保持空缺。
 - 2×2 预训练/想象实验协议、RQ1–RQ3 评估口径、OOD 与数据预算规范。
-- GitHub Actions 运行不依赖游戏的诊断规则测试和模拟器测试（Python 3.12/3.14），并保留语法检查。
+- GitHub Actions checks Python syntax, offline diagnostic rules and simulator tests on Python 3.12 and 3.14. The agent job checks package installation and import with the pinned CPU build of PyTorch on supported matrix entries.
 
 2026-11-06 已在本机验证发射台 RPC、连续遥测和可恢复灯光控制；2026-11-17 记录 final proposal 的任务定性决策与实验协议。模拟器的独立验收见 [模拟器验证说明](simulator/docs/VALIDATION.md)，既有 KSP 证据见 [验证记录](docs/validation.md)。**Mun 初始下降场景、KSP 可重复 reset/step、实船安全阈值、两端接口校准、预训练与 RQ1–RQ3 实验仍待完成。** 模拟器的 pilot 数值没有填入共享任务配置中的 TBD；动作顺序、轴映射和精度指标差异见 [仓库接入说明](simulator/docs/REPOSITORY_INTEGRATION.md)。
 
@@ -79,6 +80,7 @@ uv pip install --python .venv/bin/python \
 ## 仓库结构
 
 ```text
+agent/         Installable mun_agent package and CPU import test
 configs/       Mun 任务契约（数值 TBD）与 adapter 测试配置（非任务）
 docs/          proposal 对照、任务契约、实验协议、环境要求、验证记录与开发顺序
 ksp_env/       可导入的 KSP 环境接口（连接、观测、动作、reset/step 骨架）

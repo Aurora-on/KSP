@@ -2,8 +2,10 @@
 
 ## Project status
 
-Research scaffolding for world models for Mun landing in Kerbal Space Program.
-No landing environment, training loop or RQ1-RQ3 experiment has been implemented.
+The standalone 6DOF simulator in `simulator/` provides the landing environment,
+scripted controller and evaluation tools. The M0 package in `agent/` installs as
+`mun-agent` and imports as `mun_agent`. World-model training, KSP landing
+integration and the RQ1–RQ3 experiments are pending.
 Do not claim results that are not recorded in `docs/validation.md`.
 
 ## Read first
@@ -35,11 +37,15 @@ Do not claim results that are not recorded in `docs/validation.md`.
 
 ## Verify
 
-Run these before committing code or configuration changes:
+From the repository root, use an environment with both packages and their test
+dependencies installed as described in [the agent README](agent/README.md).
+Run these checks before committing code or configuration changes.
 
 ```sh
 python3 -m compileall -q ksp_env scripts tests
 python3 -m unittest discover -s tests -v
+python -m pytest simulator/tests -q
+python -m pytest agent/tests -q
 ```
 
 For live KSP checks, follow `README.md` and use only the documented flags.
