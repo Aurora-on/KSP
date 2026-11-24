@@ -72,7 +72,7 @@ class Replay:
             raise TypeError("replay expects Episode instances")
         self._lengths = np.asarray([len(ep) for ep in self.episodes], dtype=np.int64)
 
-    def sample(self, batch_size: int, length: int, rng: np.random.Generator):
+    def sample(self, batch_size: int, length: int, rng: np.random.Generator, *, frame_features=None):
         """Return padded windows; flags and mask describe transitions, not frames."""
         if batch_size < 1 or length < 1 or not self.episodes:
             raise ValueError("sampling needs episodes and positive batch_size and length")
@@ -91,6 +91,8 @@ class Replay:
             "action": np.zeros((*shape, 4), np.float32),
             "reward": np.zeros(shape, np.float32),
         }
+        if frame_features is not None:
+            batch["features"] = np.empty((batch_size, length + 1, frame_features[0].shape[-1]), np.float32)
         for key in ("mask", "is_first", "is_last", "terminated", "truncated"):
             batch[key] = np.zeros(shape, bool)
 
@@ -99,7 +101,10 @@ class Replay:
             ep = self.episodes[ep_id]
             rows = np.flatnonzero(episode_ids == ep_id)
             frames = starts[rows, None] + np.arange(length + 1)
-            batch["obs"][rows] = ep.obs[np.clip(frames, 0, len(ep))]
+            frame_indices = np.clip(frames, 0, len(ep))
+            batch["obs"][rows] = ep.obs[frame_indices]
+            if frame_features is not None:
+                batch["features"][rows] = frame_features[ep_id][frame_indices]
             steps = frames[:, :-1]
             valid = (steps >= 0) & (steps < len(ep))
             local_rows, cols = np.nonzero(valid)

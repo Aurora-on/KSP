@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 
 import numpy as np
 import pytest
@@ -24,6 +25,7 @@ def test_collection_on_nominal_simulator():
         assert set(seeds).isdisjoint(entry["seed"] for entry in fixed["starts"])
 
     records = metadata["episode_provenance"]
+    assert metadata["status_counts"] == Counter(r["status"] for r in records)
     assert {(r["controller"], r["noise_std"]) for r in records} == {
         ("scripted", 0), ("scripted", 0.1), ("random", None)}
     assert metadata["env_steps"] == sum(len(ep.action) for ep in replay.episodes)
@@ -45,10 +47,14 @@ def test_collection_on_nominal_simulator():
             assert ep.reward[t] == np.float32(reward)
             assert ep.terminated[t] == terminated and ep.truncated[t] == truncated
         assert terminated or truncated
+        assert details["status"] == info["status"]
+        td = info.get("touchdown")
+        assert details["touchdown_speed"] == (td["speed"] if td else None)
+        assert details["touchdown_tilt_deg"] == (td["tilt_deg"] if td else None)
     env.close()
 
 
-def test_records_environment_applied_action_and_only_reads_that_info_key(monkeypatch):
+def test_action_and_outcome_metadata_remain_separate(monkeypatch):
     from gymnasium.spaces import Box
 
     applied = np.array([0.9375, -1.0, 0.25, -0.75], dtype=np.float32)
@@ -66,14 +72,18 @@ def test_records_environment_applied_action_and_only_reads_that_info_key(monkeyp
 
         def step(self, action):
             assert not np.array_equal(action, applied)
-            return final.copy(), -100.0, False, True, {"applied_action": applied.copy()}
+            return final.copy(), -50.0, False, True, {"applied_action": applied.copy(), "status": "timeout"}
 
         def close(self):
             pass
 
     monkeypatch.setattr(collection, "LanderEnv", OneStepEnv)
-    replay, _ = collection.collect(seed=7, episodes=1, noise_levels=(0,), random_fraction=1.0)
+    replay, metadata = collection.collect(seed=7, episodes=1, noise_levels=(0,), random_fraction=1.0)
+    record = metadata["episode_provenance"][0]
+    assert metadata["status_counts"] == {"timeout": 1}
+    assert record["touchdown_speed"] is None and record["touchdown_tilt_deg"] is None
     ep = replay.episodes[0]
+    assert set(vars(ep)) == {"obs", "action", "reward", "terminated", "truncated"}
     np.testing.assert_array_equal(ep.action[0], applied)
     np.testing.assert_array_equal(ep.obs[-1], final)
     assert ep.truncated[-1] and not ep.terminated[-1]
@@ -82,8 +92,27 @@ def test_records_environment_applied_action_and_only_reads_that_info_key(monkeyp
 @pytest.mark.parametrize("override", [
     {"noise_levels": ()}, {"noise_levels": (-0.1,)}, {"noise_levels": (float("inf"),)},
     {"random_fraction": float("nan")}, {"random_fraction": 2}, {"episodes": 0}, {"seed": -1},
+    {"hard_fraction": -0.1}, {"hard_fraction": float("nan")}, {"random_fraction": 0.6, "hard_fraction": 0.6},
 ])
 def test_rejects_invalid_collection_parameters(override):
     params = {"seed": 0, "episodes": 1, "noise_levels": (0,), "random_fraction": 0}
     with pytest.raises(ValueError):
         collection.collect(**(params | override))
+
+
+def test_hard_landing_caps_throttle_and_records_perturbation():
+    replay, metadata = collection.collect(seed=19, episodes=1, noise_levels=(0.2,),
+                                          random_fraction=0.0, hard_fraction=1.0)
+    episode = replay.episodes[0]
+    record = metadata["episode_provenance"][0]
+    assert record["controller"] == "hard_landing"
+    params = record["hard_parameters"]
+    assert params == collection._hard_parameters(record["reset_seed"])
+    assert record["status"] in ("safe_landing", "crash")
+    assert record["touchdown_speed"] > 0 and record["touchdown_tilt_deg"] >= 0
+    altitude = episode.obs[:-1, 2]
+    cutoff = (0 < altitude) & (altitude <= params["cut_height_m"])
+    assert cutoff.any()
+    assert np.all(episode.action[cutoff, 0] <= np.float32(params["throttle_cap"]))
+    rcs = np.array([params["rcs_x"], params["rcs_y"]], dtype=np.float32)
+    assert np.any(np.all(episode.action[cutoff, 1:3] == rcs, axis=1))

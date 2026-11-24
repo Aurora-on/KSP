@@ -4,24 +4,28 @@ import numpy as np
 from mun_lander import SimConfig
 
 
-def interface_spec(config: SimConfig) -> dict:
+def interface_spec(config: SimConfig, *, ground_history=False, legacy=False) -> dict:
     """Return the JSON-serializable preprocessing contract stored in a checkpoint."""
-    return {
+    spec = {
         "attitude_encoding": "rot6d",
         "scales": {
-            "position": 100.0,
-            "velocity": 10.0,
-            "angular_velocity": 0.5,
+            "position": 100.0 if legacy else 20.0,
+            "velocity": 10.0 if legacy else 5.0,
+            "angular_velocity": 0.5 if legacy else 0.2,
             "fuel": config.vehicle.fuel_capacity,
         },
         "control_dt": config.control_dt,
         "source_config": config.to_dict(),
     }
+    if not legacy:
+        spec["ground_history_cap"] = (int(np.ceil(config.landing.stability_time / config.control_dt))
+                                      if ground_history else 0)
+    return spec
 
 
-def validate_interface_spec(saved: dict, config: SimConfig) -> None:
+def validate_interface_spec(saved: dict, config: SimConfig, *, ground_history=False, legacy=False) -> None:
     """Reject a checkpoint whose transforms or source simulator configuration differ."""
-    expected = interface_spec(config)
+    expected = interface_spec(config, ground_history=ground_history, legacy=legacy)
     if not isinstance(saved, dict) or saved.keys() != expected.keys():
         raise ValueError("checkpoint interface specification has missing or unknown fields")
     for key, value in expected.items():
@@ -61,6 +65,20 @@ def preprocess(obs, spec: dict) -> np.ndarray:
         obs[..., 10:13] / scales["angular_velocity"],
         obs[..., 13:14] / scales["fuel"],
     ), axis=-1, dtype=np.float32)
+
+
+def episode_features(obs, spec):
+    """Encode a complete episode, counting consecutive zero-clearance frames causally."""
+    features = preprocess(obs, spec)
+    cap = spec.get("ground_history_cap", 0)
+    if not cap:
+        return features
+    if features.ndim != 2:
+        raise ValueError("ground history requires one complete episode in temporal order")
+    index = np.arange(1, len(obs) + 1)
+    last_air = np.maximum.accumulate(np.where(obs[:, 2] == 0, 0, index))
+    duration = np.minimum(index - last_air, cap).astype(np.float32) / cap
+    return np.column_stack((features, duration))
 
 
 def physical_fields(features, spec: dict) -> dict:

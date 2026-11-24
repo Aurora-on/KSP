@@ -59,7 +59,8 @@ def main(argv=None):
         replay, metadata = collect(seed=args.seed, **config)
         save_dataset(args.out, replay, metadata)
         result = {"episodes": len(replay.episodes), "env_steps": metadata["env_steps"],
-                  "manifest_sha256": metadata["train_manifest_sha256"], "device": "cpu"}
+                  "manifest_sha256": metadata["train_manifest_sha256"],
+                  "status_counts": metadata["status_counts"], "device": "cpu"}
     else:
         from .fit import computation_device, fit, load_world_model
         device = computation_device(args.device)
@@ -75,7 +76,9 @@ def main(argv=None):
             starts = {s["seed"] for s in metadata["manifest"]["starts"]}
             if starts.intersection(checkpoint["train_reset_seeds"]):
                 parser.error("report requires held-out episodes with disjoint reset seeds")
-            result = open_loop_report(model, replay, checkpoint["interface"])
+            result = open_loop_report(model, replay, checkpoint["interface"],
+                                      train_mean=checkpoint.get("train_mean"),
+                                      provenance=metadata["episode_provenance"])
             result.update(device=str(device), checkpoint_sha256=file_hash(args.checkpoint),
                           fit_seed=checkpoint["seed"], collection_seed=metadata["seed"],
                           train_manifest_sha256=checkpoint["train_manifest_sha256"],

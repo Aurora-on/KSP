@@ -8,6 +8,7 @@ from mun_lander.math3d import rotation_matrix, tilt_angle
 from mun_lander.wrappers import NormalizedObservation, SymmetricAction
 
 from mun_agent.interface import (
+    episode_features,
     interface_spec,
     physical_fields,
     preprocess,
@@ -27,7 +28,7 @@ def test_features_follow_simulator_rotation_and_scales():
     negated[6:10] *= -1
 
     features = preprocess(np.stack([obs, negated])[None], interface_spec(config))
-    scaled = env.observation(obs)
+    scaled = obs / np.array([20]*3 + [5]*3 + [1]*4 + [0.2]*3 + [300])
     columns = rotation_matrix(obs[6:10])[:, :2].T.ravel()
     expected = np.concatenate((scaled[:6], columns, scaled[10:]))
     assert features.shape == (1, 2, 16)
@@ -96,3 +97,14 @@ def test_zero_and_collinear_rotations_have_no_valid_tilt():
         fields = physical_fields(features, interface_spec(SimConfig()))
     np.testing.assert_array_equal(fields["tilt_valid"], [False, False, True])
     np.testing.assert_allclose(fields["tilt_deg"], [0, 0, 180])
+
+def test_ground_duration_uses_only_past_and_resets_after_liftoff():
+    config = SimConfig()
+    spec = interface_spec(config, ground_history=True)
+    obs = np.zeros((60, 14), dtype=np.float32)
+    obs[:, 6] = 1
+    obs[[0, 56], 2] = 1
+    full = episode_features(obs, spec)
+    np.testing.assert_array_equal(full[:13], episode_features(obs[:13], spec))
+    np.testing.assert_allclose(full[[0, 1, 50, 55, 56, 57], -1], [0, .02, 1, 1, 0, .02])
+    np.testing.assert_array_equal(full[:, :16], preprocess(obs, spec))

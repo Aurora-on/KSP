@@ -1,5 +1,7 @@
 """Categorical recurrent state-space model for the 16 normalized lander features."""
 
+import math
+
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
@@ -14,19 +16,25 @@ def symexp(x: Tensor) -> Tensor:
 
 
 def two_hot(target: Tensor, centers: Tensor) -> Tensor:
-    """Interpolate in symlog space on a uniformly spaced grid."""
-    step = (centers[-1] - centers[0]) / (len(centers) - 1)
-    index = ((symlog(target) - centers[0]) / step).clamp(0, len(centers) - 1)
-    low = index.long()
-    high = (low + 1).clamp_max(len(centers) - 1)
-    weight = index - low
-    probs = target.new_zeros((*target.shape, len(centers)))
-    probs.scatter_(-1, low.unsqueeze(-1), (1 - weight).unsqueeze(-1))
-    return probs.scatter_add_(-1, high.unsqueeze(-1), weight.unsqueeze(-1))
+    """Interpolate between adjacent ordered bin centers in original reward units."""
+    value = target.to(centers.dtype).clamp(centers[0], centers[-1])
+    upper = torch.searchsorted(centers, value.contiguous(), right=True).clamp(1, len(centers) - 1)
+    lower = upper - 1
+    width = centers[upper] - centers[lower]
+    lower_weight = (centers[upper] - value) / width
+    upper_weight = (value - centers[lower]) / width
+    probs = value.new_zeros((*value.shape, len(centers)))
+    probs.scatter_(-1, lower.unsqueeze(-1), lower_weight.unsqueeze(-1))
+    return probs.scatter_(-1, upper.unsqueeze(-1), upper_weight.unsqueeze(-1))
 
 
 def decode_two_hot(probs: Tensor, centers: Tensor) -> Tensor:
-    return symexp((probs * centers).sum(dim=-1))
+    """Expectation on the symmetric symexp grid, in original reward units."""
+    # Subtract masses at opposite centers before multiplying by their shared
+    # magnitude. Equal tail masses cancel exactly even at ±4.85e8 in float32.
+    half = len(centers) // 2
+    difference = probs[..., -half:] - probs[..., :half].flip((-1,))
+    return (difference * centers[-half:]).sum(dim=-1)
 
 
 def kl_losses(posterior: Tensor, prior: Tensor, free_nats: float = 1.0):
@@ -45,14 +53,26 @@ def _mlp(input_size, hidden, output_size):
 
 
 class WorldModel(nn.Module):
-    def __init__(self, deter: int, stoch: int, classes: int, hidden: int, bins: int = 255):
+    def __init__(self, deter: int, stoch: int, classes: int, hidden: int, bins: int = 255,
+                 *, legacy_reward: bool = False, dynamics_scale: float = 1.0,
+                 representation_scale: float = 0.1, free_nats: float = 1.0,
+                 event_weight: float = 1.0, ground_history: bool = False):
         super().__init__()
         if min(deter, stoch, hidden) < 1 or min(classes, bins) < 2:
             raise ValueError("invalid world model dimensions")
+        scales = (dynamics_scale, representation_scale, free_nats, event_weight)
+        if any(not math.isfinite(k) or k < 0 for k in scales) or event_weight <= 0:
+            raise ValueError("loss scales must be finite and nonnegative, event_weight positive")
+        self.dynamics_scale = dynamics_scale
+        self.representation_scale = representation_scale
+        self.free_nats = free_nats
+        self.event_weight = event_weight
+        self.ground_history = ground_history
+        self.input_size = 17 if ground_history else 16
         self.deter, self.stoch, self.classes = deter, stoch, classes
         stochastic_size = stoch * classes
         state_size = deter + stochastic_size
-        self.encoder = _mlp(16, hidden, hidden)
+        self.encoder = _mlp(self.input_size, hidden, hidden)
         self.gru = nn.GRUCell(stochastic_size + 4, deter)
         self.prior = _mlp(deter, hidden, stochastic_size)
         self.posterior = _mlp(deter + hidden, hidden, stochastic_size)
@@ -61,11 +81,20 @@ class WorldModel(nn.Module):
         self.continue_head = _mlp(state_size, hidden, 1)
         nn.init.zeros_(self.reward_head[-1].weight)
         nn.init.zeros_(self.reward_head[-1].bias)
-        self.register_buffer("centers", torch.linspace(-20, 20, bins))
+        self.legacy_reward = legacy_reward
+        if legacy_reward:
+            # Preserve the original key and arithmetic for format-1 checkpoints.
+            self.register_buffer("centers", torch.linspace(-20, 20, bins))
+        else:
+            # Mirror the negative half exactly, including the two central zero
+            # bins for an even-sized head in the reference implementation.
+            negative = symexp(torch.linspace(-20, 0, (bins + 1) // 2))
+            mirrored = negative[:-1] if bins % 2 else negative
+            self.register_buffer("reward_bins", torch.cat((negative, -mirrored.flip((0,)))))
 
     def initial(self, batch_size):
-        return (self.centers.new_zeros((batch_size, self.deter)),
-                self.centers.new_zeros((batch_size, self.stoch, self.classes)))
+        return (self.gru.bias_hh.new_zeros((batch_size, self.deter)),
+                self.gru.bias_hh.new_zeros((batch_size, self.stoch, self.classes)))
 
     def _distribution(self, logits):
         probs = logits.unflatten(-1, (self.stoch, self.classes)).softmax(dim=-1)
@@ -109,13 +138,19 @@ class WorldModel(nn.Module):
 
     def predict(self, state):
         features, reward_logits, continue_logits = self._heads(state)
-        reward = decode_two_hot(reward_logits.softmax(dim=-1), self.centers)
+        probs = reward_logits.softmax(dim=-1)
+        if self.legacy_reward:
+            reward = symexp((probs * self.centers).sum(dim=-1))
+        else:
+            reward = decode_two_hot(probs, self.reward_bins)
         return symexp(features), reward, continue_logits.sigmoid()
 
     def loss(self, features, actions, rewards, terminals, mask, *, sample=True):
         """At a real transition t predict x[t+1], r[t] and 1-done[t] from s[t+1]."""
+        if self.legacy_reward:
+            raise RuntimeError("historical reward head supports inference only")
         batch, length = mask.shape
-        if (features.shape != (batch, length + 1, 16) or actions.shape != (batch, length, 4)
+        if (features.shape != (batch, length + 1, self.input_size) or actions.shape != (batch, length, 4)
                 or rewards.shape != mask.shape or terminals.shape != mask.shape):
             raise ValueError("inconsistent world model sequence shapes")
 
@@ -152,18 +187,29 @@ class WorldModel(nn.Module):
         z = torch.stack(zs, dim=1)[valid]
         q = torch.stack(posteriors, dim=1)[valid]
         prior = self._distribution(self.prior(h))
-        dynamics, representation = kl_losses(q, prior)
+        dynamics, representation = kl_losses(q, prior, self.free_nats)
         features_hat, reward_logits, continue_logits = self._heads((h, z))
         target_reward = rewards[row[:, None], index][valid]
         target_continue = 1.0 - terminals[row[:, None], index][valid].to(features.dtype)
-        target_probs = two_hot(target_reward, self.centers)
+        target_probs = two_hot(target_reward, self.reward_bins)
+        # Optional event weighting changes the effective training distribution
+        # of these two heads. Its inference still uses only the RSSM state.
+        weights = target_continue + (1 - target_continue) * self.event_weight
+        weights = weights / weights.sum()
+        reward_ce = -(target_probs * reward_logits.log_softmax(dim=-1)).sum(dim=-1)
+        continue_bce = F.binary_cross_entropy_with_logits(
+            continue_logits, target_continue, reduction="none")
+        # Reconstruct the 16 physical features. The optional causal contact
+        # history is additional encoder context, not a reconstruction target.
+        error = features_hat - symlog(next_obs[valid][..., :16])
         losses = {
-            "reconstruction": F.mse_loss(features_hat, symlog(next_obs[valid])),
-            "reward": -(target_probs * reward_logits.log_softmax(dim=-1)).sum(dim=-1).mean(),
-            "continue": F.binary_cross_entropy_with_logits(continue_logits, target_continue),
+            "reconstruction": error.square().sum(dim=-1).mean(),
+            "reward": (weights * reward_ce).sum(),
+            "continue": (weights * continue_bce).sum(),
             "dynamics": dynamics.mean(),
             "representation": representation.mean(),
         }
         losses["loss"] = (losses["reconstruction"] + losses["reward"] + losses["continue"]
-                          + losses["dynamics"] + 0.1 * losses["representation"])
+                          + self.dynamics_scale * losses["dynamics"]
+                          + self.representation_scale * losses["representation"])
         return losses

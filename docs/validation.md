@@ -1,6 +1,6 @@
 # Validation record
 
-## 2026-11-24 — M1 replay and M2 world-model acceptance
+## 2026-11-24 — M1 replay and M2 pipeline checks
 
 Apple M5 CPU, macOS arm64, Python 3.14.4, PyTorch 2.15.0, NumPy 2.5.4 and Gymnasium 1.4.0. These runs cover offline model fitting and simulator-only prediction. Landing-policy evaluation starts in a later milestone.
 
@@ -13,7 +13,7 @@ M1 source `4e4cf4e`. Both collections used nominal `SimConfig()` and `agent/conf
 | Training | 17 | 8 | 2633 | `890a1e09e8f0bf619feec949c8a3c3b614aadd3285d9902ad76b707e84eb1abd` | 1.62 s |
 | Held out | 18 | 8 | 2673 | `7a665e436f46ecb240b69446fe47c6e3a2d5b6dd06b11d752de19759908492e1` | 1.23 s |
 
-### M2 offline fitting and open-loop diagnosis
+### M2 pipeline passed; model quality fell short (see M2R)
 
 M2 source `f40f6de`, clean at the start of both runs. Each preset was fitted once on the same eight training episodes using seed 31. The loss was evaluated before and after fitting using identical real transitions from the training replay, with the posterior set to its mode. The probe depends on batch size and sequence length, so each loss pair is interpreted within its own preset.
 
@@ -53,7 +53,7 @@ for preset in debug base; do
 done
 ```
 
-Both milestones passed the offline syntax and regression checks. At M1, `python -m pytest agent/tests -q` passed 21 cases (20 added). At M2, it passed 32 (11 additional). For each milestone, `python3 -m compileall -q ksp_env scripts tests` succeeded, `python3 -m unittest discover -s tests -v` passed 26 and skipped two opt-in live checks, and `python -m pytest simulator/tests -q` passed 61 and skipped the NumPy 2.4.6 manifest reproduction test. The simulator tests emitted the two existing unbounded-observation warnings.
+Offline syntax and regression checks passed. The initial M2 acceptance criteria covered pipeline operation and loss reduction. The M2R entry assesses model quality. At M1, `python -m pytest agent/tests -q` passed 21 cases (20 added). At M2, it passed 32 (11 additional). For each milestone, `python3 -m compileall -q ksp_env scripts tests` succeeded, `python3 -m unittest discover -s tests -v` passed 26 and skipped two opt-in live checks, and `python -m pytest simulator/tests -q` passed 61 and skipped the NumPy 2.4.6 manifest reproduction test. The simulator tests emitted the two existing unbounded-observation warnings.
 
 ## 2026-11-24 — M0 agent packaging and CPU checks
 
