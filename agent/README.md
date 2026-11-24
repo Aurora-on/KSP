@@ -1,6 +1,6 @@
 # Mun 着陆智能体
 
-`mun-agent` 用于在六自由度 Mun 着陆模拟器中开发和训练策略。当前可从模拟器采集演示数据、拟合世界模型、在独立回合上检查多步预测，以及训练和评估垂直着陆策略。模拟器的原生输入输出见[接口说明](../simulator/docs/INTERFACES.md)，后续训练采用的约定见[方法说明](docs/METHOD.md)。
+`mun-agent` 用于在六自由度 Mun 着陆模拟器中开发和训练策略。当前可从模拟器采集演示数据、拟合世界模型、在独立回合上检查多步预测，以及训练和评估垂直或名义六自由度着陆策略。模拟器的原生输入输出见[接口说明](../simulator/docs/INTERFACES.md)，后续训练采用的约定见[方法说明](docs/METHOD.md)。
 
 ## 安装与验证
 
@@ -36,6 +36,59 @@ mun-agent collect --config agent/configs/base.json --device cpu --seed 190 --epi
 ```
 
 `base.json` 默认采集 200 回合，其中 60% 用硬着陆扰动，5% 用随机动作，其余在脚本动作上添加标准差 0、0.05、0.1、0.2 的高斯噪声。采集在 CPU 上执行。命令打印步数、清单哈希和各结局计数。输出目录包含原生数据 `replay.npz` 和 `collection.json`，后者记录初态清单、扰动参数及种子、每回合的结局、首次触地总速度（m/s）和倾角（°）。未触地回合的两项触地指标为 `null`。已有输出目录会被拒绝覆盖。
+
+## S3 名义六自由度与 L40 多种子训练
+
+本机已完成种子 31、32、33 各 24 轮。交付的种子 32 第 1 轮策略在独立测试上 100/100 安全入靶。三个种子的第 24 轮策略在验证清单上均为 100 次超时。[完整验收记录](../docs/validation.md)
+
+在装有 L40 的 Linux 主机上，从仓库根目录建立并激活 Python 3.12–3.14 虚拟环境。先用 `nvidia-smi` 查看驱动和可用设备，再从 PyTorch 的 Linux / Pip 安装说明选择与该驱动兼容且提供 `torch==2.15.0` 的 CUDA wheel 索引，将其 URL 存入 `TORCH_WHEEL_INDEX`。以下命令会核对安装版本，并在当前可见的 GPU 上实际执行一次张量运算。[PyTorch 安装选择器](https://pytorch.org/get-started/locally/) · [PyTorch 版本与安装索引](https://pytorch.org/get-started/previous-versions/)
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+nvidia-smi
+python -m pip install --index-url "${TORCH_WHEEL_INDEX:?Set the CUDA wheel index for the server driver}" 'torch==2.15.0'
+python -m pip install -c requirements/runtime.txt -e ./simulator -e './agent[dev]'
+python -m pip check
+python - <<'PYTHON'
+import torch
+assert torch.__version__.split("+")[0] == "2.15.0", torch.__version__
+assert torch.cuda.is_available(), (torch.__version__, torch.version.cuda)
+for i in range(torch.cuda.device_count()):
+    print(i, torch.cuda.get_device_name(i), torch.ones(1, device=f"cuda:{i}").item())
+PYTHON
+```
+
+**训练输入。** 各种子共用 S1 选定的 `agent/runs/s1-contact-seed31/best.pt` 和一份名义预填充回放。可将该检查点及完整回放目录复制到服务器；S1 检查点的本地重建命令见本文「S1 确定性世界模型」。全新实验按下列命令采集 400 回合，种子 240，脚本噪声档位为 0、0.03、0.07、0.1。准备一次固定验证与测试清单，两者各含 100 个种子 2026 生成的名义初态，划分互异。复评已有实验时复制原清单文件，以保留跨平台一致的哈希。
+
+```sh
+mun-agent collect --config agent/configs/s3_prefill.json --device cpu --seed 240 --out agent/data/s3-nominal-prefill
+mun-agent prepare-nominal --validation agent/data/s3-validation.json --test agent/data/s3-test.json
+```
+
+**启动与续训。** `s3_nominal.json` 启用主推力和三个 RCS 通道，先用低噪声脚本示范拟合策略，再运行固定在线迭代预算；迭代数、验证频率和墙钟预算以配置为准。启动器仅在当前主机创建进程。以下命令让三个种子使用两块卡，每卡同时最多两个独立训练进程。
+
+```sh
+agent/scripts/launch_seeds.sh --seeds 31,32,33 --gpus 0,1 --jobs-per-device 2 --out-root agent/runs/s3-l40
+```
+
+省略 `--gpus` 时沿用已有的 `CUDA_VISIBLE_DEVICES`；未设置该变量时使用 GPU 0。每个子进程单独设置可见卡，日志写入 `agent/runs/s3-l40/seed-N.log`，配置、验证点、权重与续训状态写入同名的 `seed-N/` 目录。可通过 `--config`、`--data`、`--world-model`、`--validation` 传入其他路径。服务器首轮试跑可只传 `--seeds 31 --gpus 0`，再用原配置和相同输出根目录运行下列命令续训并补齐其余种子。某种子失败时，同批其他种子运行完毕后启动器返回非零状态。
+
+```sh
+agent/scripts/launch_seeds.sh --seeds 31,32,33 --gpus 0,1 --jobs-per-device 2 --out-root agent/runs/s3-l40 --resume
+```
+
+CPU 环境可运行 `python -m pytest agent/tests/test_nominal_training.py agent/tests/test_launch_seeds.py -q` 验证训练入口和并发调度。要在 CPU 上单独启动训练，可使用 `agent/scripts/launch_seeds.sh --device cpu --seeds 31 --out-root agent/runs/s3-cpu`。
+
+**选点与评估。** 每个种子先按验证集安全着陆率选点，平局按平均回报、随后按较晚迭代选择。所有种子完成后，一次向 `report` 提交全部运行目录；报告并列给出仅行为克隆、在线策略和同清单现场运行的脚本控制器结果，测试清单只用于最终评估。以下命令还可生成验证曲线和风险分析；输出路径需为新路径。
+
+```sh
+mun-agent report --run agent/runs/s3-l40/seed-31 --run agent/runs/s3-l40/seed-32 --run agent/runs/s3-l40/seed-33 --validation agent/data/s3-validation.json --test agent/data/s3-test.json --out agent/runs/s3-l40/report --device cpu
+mun-agent plot --run agent/runs/s3-l40/seed-31 --run agent/runs/s3-l40/seed-32 --run agent/runs/s3-l40/seed-33 --out agent/runs/s3-l40/validation-curve.png
+mun-agent policy-risk --run agent/runs/s3-l40/seed-31 --run agent/runs/s3-l40/seed-32 --run agent/runs/s3-l40/seed-33 --validation agent/data/s3-validation.json --data agent/data/s3-nominal-prefill --out agent/runs/s3-l40/risk --device cpu
+```
+
+`policy-risk` 在验证清单上汇报最终策略的成对想象与真实回报、策略访问状态与预填充数据上的多步预测误差，并为相邻验证点的安全率下降保存对应的触地分布和模型误差。
 
 ## S2 垂直着陆策略
 

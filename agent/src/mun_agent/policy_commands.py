@@ -225,9 +225,9 @@ def plot_nominal(runs, out, plt, percent_formatter, number_formatter):
     manifests = {row["starts_sha256"] for _, rows in runs for row in rows}
     if len(manifests) != 1:
         raise ValueError("all nominal curves must use the same validation manifest")
-    fig, axes = plt.subplots(2, 2, figsize=(11, 6.6), constrained_layout=True)
+    fig, axes = plt.subplots(2, 2, figsize=(11, 6.6), sharex=True, constrained_layout=True)
     fields = [("safe_landing_rate", "Safe landing"), ("safe_in_target_rate", "Safe landing in target"),
-              ("mean_return", "Mean episode return"), ("mean_touchdown_speed_m_s", "Mean first-touchdown speed (m/s)")]
+              ("mean_return", "Mean episode return"), ("mean_touchdown_speed_m_s", "Mean first-touchdown speed (m/s, contact episodes)")]
     try:
         for ax, (field, title) in zip(axes.flat, fields, strict=True):
             for name, rows in runs:

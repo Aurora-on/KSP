@@ -1,5 +1,120 @@
 # Validation record
 
+## 2026-11-24 — S3 nominal 6DOF simulator landing
+
+The validation-selected seed-32 actor landed safely inside the target on 100/100 fixed validation starts and 100/100 fixed test starts. The corresponding behavior clone and independently run scripted controller also scored 100/100 on both measures on each split. One online update cycle improved the selected actor's average return over cloning on both splits. Continuing the identical training recipe for 24 cycles led to 100/100 timeouts on the validation manifest for every seed.
+
+### Gates and paired controller comparison
+
+| Split | Method | Safe / 100 | Safe in target / 100 | Safe landing error (m) | Fuel (kg) | Flight (s) | First-touch speed (m/s) | Mean return |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| validation | Behavior clone | 100 | 100 | 1.556 | 31.173 | 33.715 | 0.591 | 92.2116 |
+| validation | Selected online | 100 | 100 | 1.421 | 30.373 | 32.920 | 0.652 | 92.3602 |
+| validation | Scripted | 100 | 100 | 1.328 | 31.515 | 34.080 | 0.654 | 92.1085 |
+| test | Behavior clone | 100 | 100 | 1.423 | 31.220 | 33.694 | 0.585 | 92.2949 |
+| test | Selected online | 100 | 100 | 1.367 | 30.410 | 32.895 | 0.645 | 92.4312 |
+| test | Scripted | 100 | 100 | 1.283 | 31.553 | 34.066 | 0.657 | 92.1716 |
+
+Fuel, time and return average all episodes. Landing error averages safe landings. Touchdown statistics concern the first contact in each episode that touched the surface. The fixed comparisons cover all 100 starts, with zero failed episodes. Each 100/100 safety rate has a Wilson 95% interval of 96.3% to 100%.
+
+| Criterion | Validation | Test |
+| --- | --- | --- |
+| Safety qualification (≥80%) | 100%, pass | 100%, pass |
+| Safe rate at least cloning, mean return strictly above cloning | Same safety, +0.1486 return, pass | Same safety, +0.1363 return, pass |
+| Test target (≥95% safe and ≥90% safe in target) | — | 100% safe, 100% in target, pass |
+
+All 100 matched test flights consumed less fuel and finished sooner with the selected policy than with its clone. Average differences were −0.810 kg and −0.799 s. Returns improved in 86/100 test flights and 88/100 validation flights. The scripted controller retained the lowest average landing error on both splits. On test the selected policy's first-touch speed rose from the clone's 0.585 to 0.645 m/s. The selected policy's maximum first-touch speed, tilt and angular speed on test were 0.765 m/s, 1.758° and 0.00372 rad/s, compared with nominal limits of 2.0 m/s, 10° and 0.2 rad/s.
+
+### Training, inputs and provenance
+
+The three seeds were fixed at 31, 32 and 33. Each independently initialized and fit its own actor and critic, sampled cloning minibatches and collected its own trajectories. All started from the same S1 world model and immutable nominal prefill. The prefill contained 124,953 transitions in 400 train episodes, with 300 low-noise scripted, 80 hard-landing and 20 random episodes. It contained 305 safe landings and 95 crashes. All 300 scripted episodes (102,329 transitions) met the cloning filter on behavior and noise alone. An initial training-split-only probe using 53 S1 demonstrations on 24 disjoint train starts found 13/24 safe and 3/24 in target with world-frame inputs and 24/24 on both measures with heading-aligned inputs (seed 31). With the final prefill, independent train probes scored 40/40 on both measures for each of the three seeds. Formal selection used the validation file.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Frozen S1 starting model | `cade1219d72c89bf5219690be3ec8a7837a09f4a681a1771a124d66a3fad7cff` |
+| Nominal train manifest, collection seed 240 | `7ceed2552768a6efd31e80c2e60da7ba4478cd257b69f813f8b929d663b6edd0` |
+| S3 permanent replay | `b26f50ac573ea3f7fa1113cc7137bb4868cf3757caf4e53a7e2fb33ac269021c` |
+| Frozen validation, seed 2026 / 100 | `2bf7a0898b9ed4f38dd46f996765f675a97fe703f0c9dcc0fee83727d0e51321` |
+| Frozen test, seed 2026 / 100 | `c12a88bc1047314fb482bbeec67ba5395e608cdd8be444e7f212f23e8a483f35` |
+| Selected seed-32 cloning-only checkpoint | `60911be1a687d8dc6697369871260866fd9c6acae7db3225ed8c57978cb4ebf5` |
+| Selected seed-32 online checkpoint | `67a3ca83692d2f83c231e5750bfad0cbc84c400f078bd2f5585a4ed947ab652b` |
+
+The fits ran on an Apple M5 CPU, two threads per seed, Python 3.14.4, NumPy 2.5.4 and PyTorch 2.15.0. The run metadata recorded base commit `e9c5795cf7013ceba894159352ab9b9b27bcf7a1` with S3 edits. Training-time `train.py` SHA-256 was `8b85449f0f17b5ab88a406ebb8b7b5c354338344ae915fe034336055f173d70e`. The implementation and three-seed launcher are in `0508ba2a6cbe4ba2f966527d237c18bb74ba2dcb`. All runs used the same [nominal configuration](../agent/configs/s3_nominal.json). The MLP uses heading-aligned observation features and all four learned action channels. Cloning ran 6,000 updates (batch 256). Each of 24 cycles collected 6 full episodes, updated the model 40 times and applied 30 pathwise actor updates (H=64, batch 128, actor LR 0.00001). Training used the existing task reward, nominal initial distribution, contact thresholds and timeout. Each run completed 960 online model updates and 720 actor updates.
+
+### Validation across the fixed 24-cycle budget
+
+| Seed | BC return | Best round | Best safe / in target | Best return | Last return | First online qualification (s) | Full run (s) | Total real training transitions |
+| ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 31 | 92.214273 | 1 | 100 / 100 | 92.338163 | -72.820 | 38.11 | 371.55 | 198,420 |
+| 32 | 92.211605 | 1 | 100 / 100 | 92.360219 | -67.685 | 39.61 | 381.76 | 202,321 |
+| 33 | 92.033199 | 1 | 100 / 100 | 92.129925 | -77.328 | 38.86 | 350.17 | 189,806 |
+
+All three untrained actors scored 0/100. The best online checkpoint was the first validation after cloning for all seeds, even though training ran to completion. Selection ranked safe rate, then mean return, then iteration. The global winner's round 1 beat its round 2 by 0.000524 mean return. Independent recomputation from the 45 archived evaluations (4,500 episode records) reproduced the validation summaries and checkpoint ordering. Reloading the selected and clone checkpoints produced the exact original validation status counts and mean returns. The three final comparison policies each ran on the frozen test file once, after selection.
+
+Safe-in-target counts fell ahead of safety. Columns give the number of safe landings inside the 5 m target on the 100-start validation manifest.
+
+| Seed | Clone | 1 | 2 | 4 | 6 | 8 | 10 | 12 | 14 | 16 | 18 | 20 | 22 | 24 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 31 | 100 | 100 | 94 | 68 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 32 | 100 | 100 | 96 | 92 | 81 | 8 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 33 | 100 | 100 | 93 | 42 | 14 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+Seed-wise median collection rates were 3,208 / 3,179 / 3,211 simulator transitions/s. Corresponding model update rates were 113.48 / 110.97 / 115.97 per second and actor/critic update rates were 7.50 / 7.81 / 7.74 per second. These are within-phase CPU measurements. L40 scheduling and failure propagation were exercised with test subprocesses, and the launcher was also smoke-tested with real CPU training and resume. L40 throughput was not measured.
+
+### World-model risk on visited states and prefill
+
+The selected actor visited 33,000 simulator transitions across the 100 validation episodes. For each eligible observed origin, open-loop physical predictions followed recorded actions. Each cell gives mean position error (m), velocity-vector error (m/s) and tilt error (degrees). The final column reports only the horizontal component of position error on the selected actor's visited states.
+
+| Steps | Selected policy, all origins | Permanent prefill, all origins | Selected policy, true endpoint below 10 m | Visited horizontal error (m) |
+| ---: | --- | --- | --- | ---: |
+| 1 | 0.001 / 0.005 / 0.010 | 0.002 / 0.010 / 0.040 | 0.001 / 0.007 / 0.005 | 0.000 |
+| 5 | 0.008 / 0.019 / 0.049 | 0.012 / 0.038 / 0.183 | 0.007 / 0.017 / 0.024 | 0.004 |
+| 15 | 0.041 / 0.049 / 0.183 | 0.079 / 0.101 / 0.519 | 0.035 / 0.040 / 0.122 | 0.029 |
+| 32 | 0.157 / 0.095 / 0.601 | 0.299 / 0.191 / 1.188 | 0.119 / 0.073 / 0.436 | 0.121 |
+
+For return comparisons, both branches start from the same observation and history, then independently recompute actions with the frozen actor. Returns are undiscounted over 32 steps and include survival weighting in imagination. Every validation episode contributed four windows for the winner.
+
+| Origin | Windows | Simulator return | Imagined return | Mean absolute gap |
+| --- | ---: | ---: | ---: | ---: |
+| reset | 100 | -1.40040 | -1.39952 | 0.00802 |
+| middle | 100 | -0.61824 | -0.61754 | 0.00297 |
+| first_contact | 100 | -0.30822 | -0.28662 | 0.02165 |
+| terminal | 100 | 99.86727 | 99.84934 | 0.01914 |
+| all | 400 | 24.38510 | 24.38642 | 0.01295 |
+
+### Safety drops and late flight behavior
+
+All three safety declines were from 100 safe episodes to 100 timeouts and persisted to round 24. The six archived checkpoints were rerun on the same 100 starts. Physical errors below are the mean 32-step position (m), speed-vector (m/s) and tilt (degrees) errors on each checkpoint's own visited states. First-touch distributions give median / 95th percentile. A dash means no episode reached the ground.
+
+| Seed / round | Safe / 100 | First contacts / 100 | Impact speed (m/s) | Impact tilt (degrees) | 32-step physical errors |
+| --- | ---: | ---: | --- | --- | --- |
+| 31 / 16 | 100 | 100 | 0.659 / 0.677 | 1.824 / 1.909 | 0.581 / 0.368 / 2.782 |
+| 31 / 18 | 0 | 0 | — | — | 0.674 / 0.422 / 3.757 |
+| 32 / 14 | 100 | 100 | 0.609 / 0.685 | 0.556 / 0.912 | 0.444 / 0.281 / 2.118 |
+| 32 / 16 | 0 | 100 | 0.673 / 0.674 | 0.880 / 0.881 | 0.433 / 0.266 / 2.134 |
+| 33 / 18 | 100 | 100 | 0.881 / 0.900 | 1.313 / 1.501 | 0.549 / 0.340 / 2.783 |
+| 33 / 20 | 0 | 0 | — | — | 0.522 / 0.275 / 3.718 |
+
+At the last safe check before the drop, mean first-touch horizontal errors were 32.53 m (seed 31), 15.74 m (32) and 23.16 m (33). Seeds 31 and 33 never touched down at the next evaluated checkpoint. For seed 32, round-16 impacts occurred at 87.39–88.09 s. Even the earliest left less than 3 s to complete the 5 s stability window before the 90 s timeout. Impact speeds stayed below 0.675 m/s. Later seed-32 policies never touched down. The drop coincided with larger position errors for seed 31 and smaller ones for seeds 32 and 33.
+
+At round 24, seed 32 reached zero safe landings and had zero first contacts. Its 32-step position, velocity-vector, tilt and horizontal-position errors were 0.245 m, 0.158 m/s, 1.558° and 0.151 m. There were 300 paired reset, middle and terminal windows, with mean simulator return −17.4701, imagined return −17.4879 and MAE 0.0251. Short-range predictions agreed with both the successful and the failing actor's realized returns. These measures do not establish the accuracy of long-horizon policy gradients or the cause of drift.
+
+### Reproduction, artifacts and checks
+
+The [agent README](../agent/README.md) gives preparation, L40 launch, resume, selection and plotting commands. The [method](../agent/docs/METHOD.md) describes information boundaries and sampling. The Mac runs used the commands below from the repository root.
+
+```sh
+mun-agent collect --config agent/configs/s3_prefill.json --seed 240 --device cpu --out agent/data/s3-nominal-prefill
+mun-agent prepare-nominal --validation agent/data/s3-validation.json --test agent/data/s3-test.json
+# Run with SEED=31, 32 and 33 in separate processes.
+mun-agent train-policy --config agent/configs/s3_nominal.json --seed "$SEED" --device cpu --data agent/data/s3-nominal-prefill --world-model agent/runs/s1-contact-seed31/best.pt --validation agent/data/s3-validation.json --out "agent/runs/s3-nominal-seed$SEED"
+```
+
+In `agent/runs/`, `s3-nominal-learning-curve.png` shows validation safety, target rate, return and first-touch speed. `s3-nominal-report/{report.json,report.md}` holds the three-seed results and same-manifest baselines. `s3-nominal-risk/index.json` links both winner/last policy diagnostics and all six drop snapshots. The selected inference and training checkpoint is `s3-nominal-seed32/checkpoints/best.pt`. Data, checkpoints, generated reports and plots are excluded from Git. This milestone used the standalone nominal simulator. Live KSP, physical OOD tests and the transfer research questions are separate experiments.
+
+
+The four repository checks passed locally with the pinned environment. Compilation succeeded, root unittest ran 28 cases (23 passed, 5 opt-in skips), simulator pytest had 61 passes and one NumPy-specific skip, and agent pytest had 92 passes and one CUDA-only skip. The 14 additional agent cases since S2 cover full-action cloning and heading symmetry, fixed manifests, on-policy prediction diagnostics, checkpoint ranking and interrupted evaluation, the multi-seed launcher and the learning curve. The existing two Gymnasium warnings concern unbounded observation-space limits. The pinned Matplotlib version is included in the agent development extra so CI can run the plotting tests. `pip check` found no broken requirements.
+
 ## 2026-11-24 — S2 vertical simulator policy
 
 The frozen post-update actor safely landed on all 100 fixed vertical validation starts, above the 80% gate (Wilson 95% interval 96.30% to 100%). Behavior cloning alone also landed on all 100. The online update reduced fuel and flight time on every paired start, with a higher first-touchdown speed. This is a single training seed in the vertical simulator diagnostic. The nominal 6DOF test manifest and live KSP are outside this measurement.
