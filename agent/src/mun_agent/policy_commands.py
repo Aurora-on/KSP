@@ -95,22 +95,71 @@ def plot_curves(args):
 
     if args.out.exists():
         raise FileExistsError(args.out)
-    fig, ax = plt.subplots(figsize=(8.2, 4.5), constrained_layout=True)
+    runs = []
+    for directory in args.run:
+        with (directory / "validation.jsonl").open(encoding="utf-8") as stream:
+            rows = [json.loads(line) for line in stream if line.strip()]
+        if not rows:
+            raise ValueError(f"no validation observations in {directory}")
+        runs.append((directory.name, rows))
+    with_clone = [(name, rows) for name, rows in runs if any(r.get("phase") == "bc_only" for r in rows)]
+    if with_clone:
+        fig, (ax, phases) = plt.subplots(1, 2, figsize=(11.4, 4.5), width_ratios=(1.6, 1),
+                                        sharey=True, constrained_layout=True)
+    else:
+        fig, ax = plt.subplots(figsize=(8.2, 4.5), constrained_layout=True)
     try:
-        for run in args.run:
-            with (run / "validation.jsonl").open(encoding="utf-8") as stream:
-                rows = [json.loads(line) for line in stream if line.strip()]
-            if not rows:
-                raise ValueError(f"no validation observations in {run}")
-            ax.plot([r["env_steps"] for r in rows], [r["safe_landing_rate"] for r in rows],
-                    marker="o", markersize=4, label=run.name)
+        colors = {}
+        for name, rows in runs:
+            line, = ax.plot([r["env_steps"] for r in rows], [r["safe_landing_rate"] for r in rows],
+                            marker="o", markersize=4, lw=1.6, label=name)
+            colors[name] = line.get_color()
+            if with_clone and not any(r.get("phase") == "bc_only" for r in rows):
+                peak = max(rows, key=lambda row: row["safe_landing_rate"])
+                rate = peak["safe_landing_rate"]
+                if rate:
+                    ax.annotate(f"{rate:.0%}", (peak["env_steps"], rate), xytext=(0, 6),
+                                textcoords="offset points", ha="center", color=colors[name], fontsize=9)
         ax.axhline(.8, color="0.38", ls="--", lw=1, label="S2 threshold (80%)")
-        ax.set(xlabel="Simulator training transitions (including prefill)", ylabel="Safe landing rate",
-               title="Vertical landing on fixed validation starts", ylim=(-.04, 1.04))
+        ax.set(xlabel="Simulator transitions (including prefill)", ylabel="Safe landing rate",
+               title="All validation checkpoints", ylim=(-.07, 1.12))
         ax.yaxis.set_major_formatter(PercentFormatter(1))
         ax.xaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
+        ax.tick_params(axis="x", labelsize=8)
         ax.grid(axis="y", alpha=.2)
-        ax.legend(fontsize=8)
+        ax.legend(loc="center right", fontsize=8, frameon=False)
+
+        if with_clone:
+            # A categorical axis keeps the two evaluations at exactly the same
+            # prefill transition count distinguishable without jittering the data.
+            stage_labels = ["Untrained", "Behavior cloning", "First online"]
+            stages = ("untrained", "bc_only", "online")
+            for name, rows in with_clone:
+                points = []
+                for index, stage in enumerate(stages):
+                    row = next((r for r in rows if r.get("phase") == stage), None)
+                    if row is not None:
+                        points.append((index, row))
+                phases.plot([i for i, _ in points], [r["safe_landing_rate"] for _, r in points],
+                            color=colors[name], marker="o", lw=1.6, label=name)
+                if len(with_clone) == 1:
+                    for i, row in points:
+                        rate = row["safe_landing_rate"]
+                        count = row.get("n_episodes")
+                        score = f"{round(rate * count)}/{count}" if count else f"{rate:.0%}"
+                        phases.annotate(score, (i, rate), xytext=(0, 6) if rate >= .9 else (8, 0),
+                                        textcoords="offset points", ha="center" if rate >= .9 else "left", color=colors[name],
+                                        fontsize=10, fontweight="bold")
+                        if row["phase"] == "online":
+                            stage_labels[i] = f"{row['actor_updates']:,} actor updates"
+                        stage_labels[i] += f"\n{row['env_steps']:,} steps"
+            phases.axhline(.8, color="0.38", ls="--", lw=1)
+            phases.set(title="Behavior-cloning warm start", xlabel="Training stage", xlim=(-.22, 2.22))
+            phases.set_xticks(range(3), stage_labels, fontsize=8)
+            phases.grid(axis="y", alpha=.2)
+            if len(with_clone) > 1:
+                phases.legend(fontsize=8, frameon=False)
+        fig.suptitle("Vertical landing on fixed validation starts", fontweight="bold")
         args.out.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(args.out, dpi=160)
     finally:

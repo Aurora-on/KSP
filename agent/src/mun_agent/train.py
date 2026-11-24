@@ -18,7 +18,7 @@ from .imagination import Actor, Critic, update_actor_critic
 from .interface import to_native_action
 from .policy import Policy, policy_checkpoint
 from .replay import Episode, Replay
-from .vertical import collect_policy, evaluate_vertical, load_validation
+from .vertical import collect_policy, evaluate_vertical, load_validation, vertical_manifest
 
 
 def _write_json(path, value, *, lines=False):
@@ -36,7 +36,21 @@ def _serialize_episode(episode):
     return {key: torch.tensor(value) for key, value in vars(episode).items() if value is not None}
 
 
+def _official_validation(manifest):
+    if manifest["seed"] != 2026 or len(manifest["starts"]) != 100:
+        return False
+    # Independently certify the fixed nominal projection. The simulator always
+    # evaluates the caller's validated file, including small diagnostic files.
+    expected = vertical_manifest(split="validation", seed=2026, episodes=100)
+    return manifest["sha256"] == expected["sha256"]
+
+
 def _check_config(c):
+    if type(c.get("bc_updates", 0)) is not int or c.get("bc_updates", 0) < 0:
+        raise ValueError("bc_updates must be a nonnegative integer")
+    if c.get("bc_updates") and (type(c["bc_batch"]) is not int or c["bc_batch"] < 2
+                                or not math.isfinite(c["bc_lr"]) or c["bc_lr"] <= 0):
+        raise ValueError("invalid behavior-cloning batch or learning rate")
     if c.get("estimator", "pathwise") not in ("pathwise", "sampled"):
         raise ValueError("unknown policy-gradient estimator")
     if c.get("estimator") == "sampled" and not (math.isfinite(c["action_std"]) and c["action_std"] > 0):
@@ -158,11 +172,18 @@ def _recover_rng(saved, rng, device):
 def _publish_files(out, progress, improved):
     # latest.pt is the single commit point. Replay publication after interruption
     # repairs either log or a missing new best without a duplicate validation point.
-    if improved:
-        best = out / "checkpoints" / "best.pt"
-        tmp = best.with_suffix(".tmp")
+    filenames = ["best.pt"] if improved else []
+    if progress.get("warm_start_planned") and progress["iteration"] == 0:
+        if "bc_validation" in progress:
+            filenames.append("bc-only.pt")
+            _write_json(out / "bc-only-validation.json", progress["bc_validation"])
+        else:
+            filenames.append("untrained.pt")
+    for name in filenames:
+        target = out / "checkpoints" / name
+        tmp = target.with_suffix(".tmp")
         shutil.copyfile(out / "checkpoints" / "latest.pt", tmp)
-        tmp.replace(best)
+        tmp.replace(target)
     _write_json(out / "metrics.jsonl", progress["metrics"], lines=True)
     _write_json(out / "validation.jsonl", progress["validations"], lines=True)
 
@@ -238,16 +259,18 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
     latest = checkpoints / "latest.pt"
     fifo, outcomes = [], []
     progress = dict(iteration=-1, actor_updates=0, model_updates=0, env_steps=meta["env_steps"],
-                    elapsed_s=0., best_rate=-1., best_iteration=None, metrics=[], validations=[])
+                    elapsed_s=0., best_rate=-1., best_iteration=None, metrics=[], validations=[],
+                    warm_start_planned=bool(c.get("bc_updates")))
     if resume and not latest.is_file():
         # A crash during setup can precede the first complete checkpoint.
         metadata_path = out / "config.json"
+        published = ("validation.jsonl", "metrics.jsonl", "summary.json", "checkpoints/best.pt")
+        if any((out / name).exists() for name in published):
+            raise ValueError("latest training checkpoint is missing from an existing run")
         if metadata_path.is_file():
             original = json.loads(metadata_path.read_text())
             if any(original.get(k) != v for k, v in provenance.items()):
                 raise ValueError("resume requires identical configuration and inputs")
-        elif any((out / name).exists() for name in ("validation.jsonl", "metrics.jsonl", "summary.json")):
-            raise ValueError("missing training checkpoint and configuration for existing run")
         resume = False
     if resume:
         saved = torch.load(latest, map_location="cpu", weights_only=True)
@@ -300,15 +323,19 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
         tmp.replace(latest)
         _publish_files(out, progress, improved)
 
-    def validate(iteration):
+    def validate(iteration, phase="online"):
         result = evaluate_vertical(timed_policy, manifest)
         row = {k:v for k,v in result.items() if k not in ("config", "controller_config", "episodes")}
         row.update(iteration=iteration, elapsed_s=elapsed(),
                    **{k:progress[k] for k in ("env_steps","actor_updates","model_updates")})
-        row["phase"] = "online" if progress["actor_updates"] > 0 else "untrained"
+        row["phase"] = phase
         progress["validations"].append(row)
-        if progress["actor_updates"] == 0:
+        if phase == "untrained":
             progress["initial_rate"] = row["safe_landing_rate"]
+            return False
+        if phase == "bc_only":
+            progress["bc_only_rate"] = row["safe_landing_rate"]
+            progress["bc_validation"] = result
             return False
         if row["safe_landing_rate"] <= progress["best_rate"]:
             return False
@@ -319,7 +346,13 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
         commit(-1, False)
     try:
         if progress["iteration"] < 0:
-            commit(0, validate(0))
+            commit(0, validate(0, "untrained"))
+        if c.get("bc_updates") and "bc_validation" not in progress:
+            from .behavior_clone import fit_clone
+            progress["bc_training"] = fit_clone(actor, static, meta, c, rng, check_budget)
+            progress["bc_training"]["online_optimizer"] = "fresh Adam; cloning optimizer is separate"
+            validate(0, "bc_only")
+            commit(0, False)
 
         for iteration in range(progress["iteration"] + 1, c["iterations"] + 1):
             if progress["best_rate"] >= .80:
@@ -368,7 +401,8 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
                        collect_status_counts=record["status_counts"], fifo_size=len(fifo),
                        collection_steps=record["env_steps"], fifo_status_counts=dict(Counter(r["status"] for r in outcomes)))
             progress["metrics"].append(row)
-            due = iteration % c["validate_every"] == 0 or iteration == c["iterations"]
+            due = (iteration % c["validate_every"] == 0 or iteration == c["iterations"]
+                   or (iteration == 1 and c.get("bc_updates", 0) > 0))
             improved = validate(iteration) if due and elapsed() < c["max_seconds"] else False
             commit(iteration, improved)
     except BudgetExpired:
@@ -381,10 +415,10 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
         torch.save(saved, tmp)
         tmp.replace(latest)
         _publish_files(out, progress, progress["best_iteration"] == progress["iteration"])
-    summary = {k:v for k,v in progress.items() if k not in ("metrics","validations")}
+    summary = {k:v for k,v in progress.items() if k not in ("metrics","validations","bc_validation")}
     summary["first_passing_validation"] = next((v for v in progress["validations"] if v["actor_updates"] > 0 and v["safe_landing_rate"] >= .8), None)
     summary["threshold_on_supplied_manifest"] = progress["best_rate"] >= .80
-    official = manifest["seed"] == 2026 and len(manifest["starts"]) == 100
+    official = _official_validation(manifest)
     summary["official_validation"] = official
     summary["passed"] = official and summary["threshold_on_supplied_manifest"]
     summary["time_budget_s"] = c["max_seconds"]
