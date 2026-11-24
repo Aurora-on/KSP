@@ -1,5 +1,70 @@
 # Validation record
 
+## 2026-11-24 — S1 deterministic simulator world model
+
+The frozen model passed W1, W2, W4 and W5 on the original 50 held-out simulator episodes. W3 and W6 have reporting requirements only. All trajectories use recorded simulator actions. No policy was trained or evaluated in S1.
+
+### Implementation and data
+
+Evaluation used clean implementation `c2f89163e7ec928a1f030d1bf72bfc3fae73aaf8`. Training ran on Apple M5 CPU, Python 3.14.4, torch 2.15.0, with four CPU threads, from `6b8f2b1` with S1 changes in the working tree. For the selected fit, the training-time SHA-256 values of `deterministic.py` and `deterministic_fit.py` were `1fb4563e4a017406556d3d15dde2dd67353514d3768c0d5b3c6692cd8cd7f978` and `e40df046cc1ce4c7116ec0f091ee2766c5a915e1eb95d74ea2a86f56b7212529` respectively. The final checkpoint SHA-256 is `cade1219d72c89bf5219690be3ec8a7837a09f4a681a1771a124d66a3fad7cff`. The RSSM comparison uses `m2r-long-A/step-028000.pt`, SHA-256 `e761885ecebc424e8c16c2877a0cc69f187c83683e6ca6ee17d89f89926261f3`.
+
+Each collection was regenerated with the original behavior mix, reset seeds and a new recorded transition duration. All six existing arrays matched the original replay exactly. Collection metadata matched apart from the replay checksum. Durations are used for reward verification. Neither durations nor event labels are model inputs.
+
+| Split | Seed | Episodes / transitions | Manifest SHA-256 | Replay with durations SHA-256 |
+| --- | ---: | ---: | --- | --- |
+| train | 170 | 200 / 59,362 | `43afb9b859cdf5ad67d298610b7d9ab437bf3a30fba25cb849c171c745b2ba8d` | `965205a9e3cbb22b80928da12ab7d069cc97f6f2d8be0fb4bae6677d45aa4c25` |
+| dev | 180 | 50 / 14,846 | `3ffb03d0258e7a1c6ba4c33cb969e838705bc1bfe5a6f0fad574fb6d59ce5ed1` | `8e5c6a9f523f62e2b7d26b24029a75e424411585675c3d67656466c61b57807c` |
+| heldout | 190 | 50 / 14,332 | `ba1921414c2b258add7bfee2a4e8da2a14c6e04951cb344d072fb450323cecdb` | `36636630de6082b54c71d6ba66f37752ee8ccfb7928956ff8df6d1eba910fb99` |
+
+### Development and selection
+
+Three fits used identical splits and initialization seed 31. Every fit evaluated the frozen development scoring rule every 750 optimizer updates. Within each fit, the smallest development score selected its checkpoint. Each subsequent variant was motivated by development diagnostics and initialized independently. The smallest of the three scores selected the sole checkpoint evaluated on the final replay. The specified 30-minute single-fit limit was observed throughout.
+
+| Fit configuration | Updates / selected | Wall time, s | Dev score | Dev first event | Dev final 15 rewards |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `s1.json` | 15,000 / 10,500 | 102.76 | 1.6108 | 47/50 | 25/50 |
+| `s1-kinematic.json` | 22,500 / 15,750 | 179.41 | 0.8132 | 47/50 | 42/50 |
+| `s1-contact.json` | 22,500 / 15,750 | 205.08 | 0.6198 | 48/50 | 46/50 |
+
+The first model left the ground spuriously during 11/19 safe development suffixes, resetting the stability counter. The kinematic support and liftoff variant recovered all 19 safe suffixes. Adding continuous contact and motion margins to the event readout improved final-window return agreement to 46/50 on development. The 195 observed training liftoffs initialized the positive velocity branch. All final model selection used development data only. The 15,750-update checkpoint passed all four gates on the complete development replay before the final run.
+
+### Physical predictions on the final replay
+
+Each cell gives mean endpoint position error (m), speed-vector error (m/s) and absolute tilt error (degrees). All four columns use the same origins and endpoints. The RSSM filters the real prefix up to each origin. The two baselines use the observed origin or a single mean fitted on training frames.
+
+| Horizon | Endpoints | Deterministic | Selected RSSM | Persistence | Training mean |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 14,332 | 0.0017 / 0.0107 / 0.0443 | 3.3846 / 0.4920 / 1.9268 | 0.3693 / 0.0512 / 0.2188 | 30.4170 / 2.5352 / 5.9456 |
+| 5 | 14,132 | 0.0139 / 0.0420 / 0.1966 | 4.7127 / 0.5665 / 2.4181 | 1.8413 / 0.2199 / 1.0042 | 29.8505 / 2.5297 / 5.9522 |
+| 15 | 13,632 | 0.0893 / 0.1090 / 0.5716 | 7.6654 / 0.7936 / 3.6791 | 5.4716 / 0.5981 / 2.3831 | 28.5021 / 2.5144 / 5.8503 |
+| 32 | 12,782 | 0.3204 / 0.1999 / 1.1951 | 11.3042 / 1.2343 / 5.9378 | 11.5178 / 1.1481 / 3.7039 | 26.4681 / 2.4866 / 5.2211 |
+
+| Gate | Final measurement | Criterion | Result |
+| --- | --- | --- | --- |
+| W1 | All 12 comparisons passed. At 15 steps the errors were 0.0893 m, 0.1090 m/s and 0.5716° | ≤ 50% of persistence at each horizon and ≤ 0.5 m, 0.2 m/s, 1° at 15 steps | Pass |
+| W2 | 5,109 endpoints below 10 m, 0.0547 m/s and 0.2884° | ≤ 0.2 m/s and 1° at 15 steps | Pass |
+| W3 | 31 contacts in safe episodes, 0.3443 m/s and 0.0239°. 33 in crash episodes, 0.0520 m/s and 0.6956° | One-step errors on air-to-ground transitions, including repeat contacts | Reported |
+| W4 | 50/50 first outcomes within one step (16/16 safe, 33/33 crash, 1/1 timeout). Mean terminal probability on 14,282 nonterminal steps was 0.00836% | Overall ≥ 95%, safe and crash each ≥ 90%, mean nonterminal risk ≤ 1% | Pass |
+| W5 | 47/50 within 25 reward units. Safe 16/16, crash 30/33, timeout 1/1 | ≥ 85% | Pass |
+| W6 | Reward-head MAE 0.0377 over all 14,332 transitions and 6.4926 on the 50 terminal transitions | Diagnostic head only | Reported |
+
+49/50 first predicted events occurred on the exact observed step, one occurred one step early. W5 missed three crashes (zero-based episodes 19, 33, 44), with true versus predicted 15-step returns of −101.24 versus −1.21, −101.47 versus −1.52, and −100.26 versus −68.71. In real windows surviving all 32 transitions, mean predicted survival was 0.99852 across 3,584 origins below 10 m and 0.99992 across 9,148 origins at or above 10 m.
+
+As a separate frozen-model check, each episode supplied its first actual air-to-ground endpoint and the recorded actions over the preceding 1, 5 or 15 control steps. Errors below are velocity-vector error (m/s) and post-transition tilt error (degrees). These are sampled endpoints after the simulator's contact response. Ground contact is inferred from clearance on the observation grid.
+
+| Final outcome | Episodes | 1 step | 5 steps | 15 steps | Exact first contact from 15 steps |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Safe landing | 16 | 0.619 / 0.019 | 0.488 / 0.050 | 0.378 / 0.093 | 10/16 |
+| Crash | 33 | 0.052 / 0.696 | 0.259 / 1.782 | 0.583 / 3.493 | 27/33 |
+
+Six crash trajectories had yet to contact the ground by the observed first-contact frame in the 15-step prediction. For safe episodes, three predicted contact early and three had yet to touch by that frame. The timeout episode had a contact and is separately recorded in `agent/runs/s1-contact-seed31/first-contact.json`. As W4 supplies a fresh true state at each origin, its 50/50 agreement can coexist with these timing errors in open loop.
+
+True-state reward replay used actual durations, including 49 shortened held-out steps. Absolute nonterminal process error (median / 95th percentile / max) was 0.00000183 / 0.00000552 / 0.00000863. Terminal total error was 0.00000186 / 0.00000481 / 0.00000574. Full split distributions, input hashes, and per-episode W4/W5 records are in the ignored artifacts `agent/runs/s1-replay-parity.json` and `agent/runs/s1-contact-seed31/heldout.json`.
+
+### Reproduction and checks
+
+The [agent README](../agent/README.md) gives the three collection commands, model fitting and the four-way final report. The [method](../agent/docs/METHOD.md) specifies gradient isolation, window masking, calibration, benchmark roles, and the development selection rule. The final report took 3.83 s on CPU. The four repository checks passed. Compilation succeeded, the root unittest suite ran 28 tests (5 skipped), simulator pytest had 61 passes and 1 skip, and agent pytest had 57 passes (44 previously). The simulator skip is the historical NumPy-version-specific manifest check. No changes to the simulator, KSP adapter or shared task configuration were required.
+
 ## 2026-11-24 — M2R simulator world-model quality
 
 The selected model fell short of the M2R criteria on 50 final held-out simulator episodes. Only G3 passed. These measurements evaluate model predictions conditioned on recorded actions.
