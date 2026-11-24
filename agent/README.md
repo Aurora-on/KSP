@@ -62,14 +62,24 @@ mun-agent train --config agent/configs/base.json --data agent/data/m2r-train --s
 
 `--set section.key=value` 可多次使用，值采用 JSON 语法。用 `fit.updates` 指定更新预算，用 `fit.max_seconds` 指定墙钟预算（默认 7140 秒，上限 7200 秒）；拟合在达到任一预算后保存 `world_model.pt`。当 `fit.checkpoint_every` 为正数时，还会保存第 0 次及每隔指定更新数的 `step-XXXXXX.pt`，可逐个运行报告以查看误差随训练的变化。`config.json` 记录实际训练回合数、数值配置、设备、代码版本、种子和数据哈希。`metrics.jsonl` 记录每次更新，`summary.json` 给出同一批训练样本在拟合前后的各项探针损失及实际更新数。拟合和报告支持 `auto|cpu|mps|cuda`；`auto` 按 CUDA、MPS、CPU 的顺序选择。
 
+## 复现正式长拟合 A
+
+共享的 50 个开发回合上，A、C 的短拟合均通过 0/5 项门槛。A 的后验位置误差为 3.42 m，C 为 6.49 m。两者最差的物理指标均为该位置误差，分别达到对应上限的 6.83 倍和 12.98 倍，正式长拟合采用 A。以下命令从种子 31 重新初始化，每 4,000 次更新保存一次候选模型，以 300,000 次更新和 7,140 秒墙钟预算中先达到者为限。
+
+```sh
+mun-agent train --config agent/configs/base.json --data agent/data/m2r-train --seed 31 \
+  --device cpu --out agent/runs/m2r-long-A --set fit.length=32 --set fit.updates=300000 \
+  --set fit.checkpoint_every=4000 --set fit.max_seconds=7140
+```
+
 ## 重建开发集曲线
 
-绘图使用可选依赖 Matplotlib。仓库约束文件固定了该依赖的版本。以下命令逐个读取已有检查点并在同一批 50 个开发回合上生成报告，文件名中的 `dev` 表示采集种子 180。主动停止的探索性拟合使用停机前已保存的快照。
+绘图使用可选依赖 Matplotlib。仓库约束文件固定了该依赖的版本。以下命令逐个读取已有检查点并在同一批 50 个开发回合上生成报告，文件名中的 `dev` 表示采集种子 180。图中包含两种正式短拟合、探索性短拟合 B 以及正式长拟合 A。
 
 ```sh
 python -m pip install -c requirements/runtime.txt matplotlib
 study_dir=agent/runs/m2r-study-reproduced
-for name in m2r-short-A m2r-short-C m2r-short-B m2r-long-B m2r-long-A m2r-long-C; do
+for name in m2r-short-A m2r-short-C m2r-short-B m2r-long-A; do
   run_dir=agent/runs/$name
   [ -d "$run_dir" ] || continue
   for checkpoint in "$run_dir"/step-*.pt "$run_dir"/world_model.pt; do
@@ -80,7 +90,7 @@ for name in m2r-short-A m2r-short-C m2r-short-B m2r-long-B m2r-long-A m2r-long-C
       --device cpu --data agent/data/m2r-dev --checkpoint "$checkpoint" --out "$report_path" >/dev/null
   done
 done
-python agent/scripts/plot_wm_quality.py --study "$study_dir"
+python agent/scripts/plot_wm_quality.py --study "$study_dir" --long-run A
 ```
 
 图表保存在 `$study_dir/quality-curve.png` 和 `$study_dir/quality-curve.svg`。横轴为优化器更新次数。开发集用于选方案和检查点，各误差的单位、比较基线和达标比例见[方法说明](docs/METHOD.md)。
