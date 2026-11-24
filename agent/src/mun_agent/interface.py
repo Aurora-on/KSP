@@ -63,6 +63,39 @@ def preprocess(obs, spec: dict) -> np.ndarray:
     ), axis=-1, dtype=np.float32)
 
 
+def physical_fields(features, spec: dict) -> dict:
+    """Decode [..., 16] features for diagnostics in SI units and tilt in degrees.
+
+    Report tilt only where tilt_valid is true. A zero or collinear rot6d pair
+    has no defined tilt and receives a finite placeholder (zero degrees).
+    """
+    features = _vectors(features, 16, "features")
+    scales = spec["scales"]
+    first = features[..., 6:9].astype(np.float64)
+    second = features[..., 9:12].astype(np.float64)
+    eps = 1e-8
+    first_norm = np.linalg.norm(first, axis=-1, keepdims=True)
+    first_unit = first / np.maximum(first_norm, eps)
+    projection = (first_unit * second).sum(axis=-1, keepdims=True)
+    orthogonal = second - first_unit * projection
+    orthogonal_norm = np.linalg.norm(orthogonal, axis=-1, keepdims=True)
+    second_unit = orthogonal / np.maximum(orthogonal_norm, eps)
+    # The third column is the thrust axis expressed in the world frame.
+    up = np.cross(first_unit, second_unit)
+    valid = (first_norm[..., 0] > eps) & (
+        orthogonal_norm[..., 0] > eps * np.maximum(1.0, np.linalg.norm(second, axis=-1))
+    )
+    tilt = np.degrees(np.arctan2(np.hypot(up[..., 0], up[..., 1]), up[..., 2]))
+    return {
+        "position": features[..., :3] * scales["position"],
+        "velocity": features[..., 3:6] * scales["velocity"],
+        "angular_velocity": features[..., 12:15] * scales["angular_velocity"],
+        "fuel": features[..., 15] * scales["fuel"],
+        "tilt_deg": np.where(valid, tilt, 0.0),
+        "tilt_valid": valid,
+    }
+
+
 def to_native_action(action) -> np.ndarray:
     """Map internal throttle from [-1, 1] to [0, 1] as in SymmetricAction."""
     native = _vectors(action, 4, "action").copy()

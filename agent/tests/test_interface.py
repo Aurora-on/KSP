@@ -4,11 +4,12 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from mun_lander import LanderEnv, SimConfig
-from mun_lander.math3d import rotation_matrix
+from mun_lander.math3d import rotation_matrix, tilt_angle
 from mun_lander.wrappers import NormalizedObservation, SymmetricAction
 
 from mun_agent.interface import (
     interface_spec,
+    physical_fields,
     preprocess,
     to_internal_action,
     to_native_action,
@@ -66,3 +67,32 @@ def test_invalid_inputs_raise():
         to_native_action([np.nan, 0, 0, 0])
     with pytest.raises(ValueError, match="dimension 4"):
         to_internal_action([0.5])
+
+
+def test_physical_fields_restore_units_and_orthogonalize_decoder_output():
+    config = SimConfig()
+    spec = interface_spec(config)
+    obs, _ = LanderEnv(config).reset(seed=42)
+    # A tilt above 90 degrees checks the sign of the reconstructed vertical axis.
+    obs[6:10] = [0.2, -0.9, 0.4, 0.1]
+    features = preprocess(np.stack((obs, obs))[None], spec)
+    features[..., 9:12] += 3 * features[..., 6:9]
+    features[..., 6:9] *= 7
+    fields = physical_fields(features, spec)
+    assert fields["position"].shape == (1, 2, 3)
+    assert fields["tilt_deg"].shape == fields["fuel"].shape == (1, 2)
+    assert fields["tilt_valid"].all()
+    np.testing.assert_allclose(fields["tilt_deg"], np.degrees(tilt_angle(obs[6:10])), atol=1e-5)
+    for field, raw in (("position", obs[:3]), ("velocity", obs[3:6]),
+                       ("angular_velocity", obs[10:13]), ("fuel", obs[13])):
+        np.testing.assert_allclose(fields[field][0, 0], raw)
+
+
+def test_zero_and_collinear_rotations_have_no_valid_tilt():
+    features = np.zeros((3, 16), np.float32)
+    features[1, 6:12] = [0, 1, 0, 0, -2, 0]
+    features[2, 6:12] = [0, 1, 0, 1, 0, 0]
+    with np.errstate(all="raise"):
+        fields = physical_fields(features, interface_spec(SimConfig()))
+    np.testing.assert_array_equal(fields["tilt_valid"], [False, False, True])
+    np.testing.assert_allclose(fields["tilt_deg"], [0, 0, 180])

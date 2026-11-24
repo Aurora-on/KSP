@@ -1,7 +1,25 @@
 {
   "collect": {
     "episodes": 8,
-    "noise_levels": [0.0, 0.05, 0.1, 0.2],
+    "noise_levels": [
+      0.0,
+      0.05,
+      0.1,
+      0.2
+    ],
     "random_fraction": 0.125
+  },
+  "model": {
+    "deter": 32,
+    "stoch": 4,
+    "classes": 8,
+    "hidden": 64,
+    "bins": 255
+  },
+  "fit": {
+    "batch_size": 8,
+    "length": 16,
+    "updates": 120,
+    "learning_rate": 0.001
   }
 }

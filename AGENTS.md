@@ -4,7 +4,8 @@
 
 The standalone 6DOF simulator in `simulator/` provides the landing environment,
 scripted controller and evaluation tools. The `mun-agent` package provides simulator observation transforms,
-uniform transition sampling and demonstration collection. World-model training, KSP landing
+uniform transition sampling, demonstration collection, offline RSSM fitting and
+open-loop diagnostics. Policy training, KSP landing
 integration and the RQ1–RQ3 experiments are pending.
 Do not claim results that are not recorded in `docs/validation.md`.
 
