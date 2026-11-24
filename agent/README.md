@@ -97,10 +97,11 @@ python agent/scripts/plot_wm_quality.py --study "$study_dir" --long-run A
 
 ## 最终质量验收
 
-在开发集上选定正式长拟合的检查点后，将 `selected_checkpoint` 设为该文件的实际路径，再对最终留出集运行一次报告。
+正式长拟合 A 在 7,140.028 秒内更新 204,325 次。开发集从 53 个候选中选出第 28,000 次更新的快照。该快照在独立 50 回合上通过 G3，G1、G2、G4、G5 未达标，M2R 停在世界模型阶段。复现本次选定快照的留出报告可运行以下命令。
 
 ```sh
-run_dir=$(dirname "${selected_checkpoint:?需指定从正式长拟合选出的检查点}")
+run_dir=agent/runs/m2r-long-A
+selected_checkpoint="$run_dir/step-028000.pt"
 mun-agent wm-report --config "$run_dir/config.json" --device cpu --data agent/data/m2r-heldout \
   --checkpoint "$selected_checkpoint" --out "$run_dir/heldout.json"
 ```

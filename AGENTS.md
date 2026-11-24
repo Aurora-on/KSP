@@ -5,8 +5,8 @@
 The standalone 6DOF simulator in `simulator/` provides the landing environment,
 scripted controller and evaluation tools. The `mun-agent` package provides simulator observation transforms,
 uniform transition sampling, demonstration collection, offline RSSM fitting and
-open-loop diagnostics. Policy training, KSP landing
-integration and the RQ1–RQ3 experiments are pending.
+open-loop diagnostics. M2R passed one of five model-quality gates on 50 held-out
+simulator episodes. Policy training, KSP landing integration and the RQ1–RQ3 experiments are pending.
 Do not claim results that are not recorded in `docs/validation.md`.
 
 ## Read first
