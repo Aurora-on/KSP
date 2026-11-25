@@ -1,10 +1,11 @@
 # KSP environment adapter
 
-Status: importable adapter skeleton. Connection, config loading and read-only
-diagnostics are implemented. Task observation, reset and step are gated by
-values that remain `TBD` in [`task-spec.md`](task-spec.md) and
-[`configs/mun_landing.toml`](../configs/mun_landing.toml). No Mun landing has
-been validated.
+Status: importable adapter with a fixed control interval, provisional contact
+detection and a debug snapshot builder. Connection, config loading, read-only
+diagnostics, observation, reset, stepping and snapshot creation are implemented.
+Task-level target, save, frame and actuator calibration remain `TBD` in
+[`task-spec.md`](task-spec.md) and [`configs/mun_landing.toml`](../configs/mun_landing.toml).
+No Mun landing has been validated.
 
 The adapter lives in `ksp_env/`; [`scripts/`](../scripts) keeps operational
 diagnostics (`doctor.py`, `telemetry.py`, `check_environment.py`). The package
@@ -41,6 +42,7 @@ The adapter must reuse kRPC instead of reimplementing its transport or math.
 | Main-engine fuel | `Vessel.resources`, `Engine.propellants` |
 | RCS and throttle | `Vessel.control`, `Control.pitch/yaw/roll/throttle` |
 | Physics-tick stepping | `KRPC.hold_tick/next_tick/release_tick` |
+| Debug snapshot setup | `Debug.set_position/set_velocity/set_direction/set_angular_velocity/fill_all_resources` |
 | Landing state | `Vessel.situation` (`landed`, `splashed`, …), `Flight.surface_altitude` |
 | Scenario/OOD helpers | `Debug.gravity_multiplier`, `Debug.set_*`, `Engine.thrust_limit` |
 
@@ -61,6 +63,15 @@ Both are explicitly marked `status = "adapter_test_only"` and keep
 `reset_step_validated` false. Do not report results from these profiles as Mun
 task results. The Mun test target is not a frozen final landing site.
 
+The adapter builds its test target frame from kRPC's surface frame with axes
+`x=east, y=south, z=up`. The task contract's target frame is still `TBD`; this
+test frame is a mechanical convention, not a frozen task decision.
+
+The test profiles also set a fixed `body_to_task_rotation_xyzw` quaternion. It
+maps the KSP vessel body frame to the task body frame; the test mapping sends
+KSP `+Y` to task `+Z`. This rotation belongs in configuration because KSP vessel
+axes depend on how the craft was assembled. The task value remains `TBD`.
+
 ```python
 env = KSPEnv.from_config("configs/ksp_mun_test.toml")
 ```
@@ -69,9 +80,12 @@ The profile save names are machine-local and are passed to kRPC's
 `SpaceCenter.load`, which expects the save file name inside the current save
 folder (for example `persistent` or `Mun landing 1`), not the folder name.
 Replace them or move them to a local manifest when using the profiles on another
-machine. Live `observe()`, `reset()` and one zero-action `step()` have been
-verified against both local profiles; these are mechanical checks only, not task
-validation.
+machine. Live `observe()`, `reset()` and a 10 Hz zero-action step have been
+verified on the Mun orbit profile; the earlier launchpad profile used a
+single-tick step. The control interval and provisional contact state have also
+been exercised live on the synthetic `Mun landing-debug-10m` snapshot; that is
+not an accepted descent initial state. These are mechanical checks only, not
+task validation.
 
 ## Control response probe
 
@@ -111,7 +125,7 @@ env.connect()
 try:
     state = env.read_diagnostic_state()   # raw, non-task telemetry
     # observation = env.observe()         # requires TBD target/frame decisions
-    # result = env.step(Action(...))      # requires TBD RCS semantics
+    # result = env.step(Action(...))      # requires target/frame and safety config
     # observation, info = env.reset(save_name="...")
 finally:
     env.close()
@@ -127,6 +141,7 @@ to run until all of the following are defined:
 - `[observation].frame = "target_surface"`
 - `[scenario].target_position` (latitude, longitude, altitude)
 - `[observation].main_engine_fuel_resource`
+- `[observation].body_to_task_rotation_xyzw` (fixed craft body mapping)
 
 ### Stepping by game time
 
@@ -150,7 +165,7 @@ Each successful hold supplies timing data in `StepResult.info`.
 | --- | --- |
 | `ut_start_s`, `ut_end_s`, `ut_delta_s` | Start and end game time in seconds and their measured difference. |
 | `physics_ticks`, `control_interval_s` | Count of completed `next_tick()` calls and the requested task interval in seconds. Single-tick probes have `control_interval_s=None`. |
-| `tick_samples` | In a task step, a sample at the start and after each tick. Each carries `ut_s`, vessel `situation`, `part_count`, the counts `leg_count`, `grounded_legs`, `broken_legs`, `surface_altitude_m`, `velocity_m_s`, `attitude_quaternion`, `angular_velocity_rad_s`, `speed_m_s` and `angular_speed_rad_s`. Position-dependent vectors and quaternions use the configured target frame. |
+| `tick_samples` | In a task step, a sample at the start and after each tick. Each carries `ut_s`, vessel `situation`, `part_count`, the counts `leg_count`, `grounded_legs`, `broken_legs`, `position_m`, `surface_altitude_m`, `velocity_m_s`, `attitude_quaternion`, `angular_velocity_rad_s`, `speed_m_s` and `angular_speed_rad_s`. Position and velocity use the configured target frame. Attitude and angular velocity are expressed in the task body frame after applying `body_to_task_rotation_xyzw`. |
 
 Leg contact, leg damage and changes in part count provide raw evidence for
 calibrating touchdown and integrity checks. Altitude, velocity and attitude
@@ -187,11 +202,15 @@ action applied and releases the tick at the end of the interval. Game time can
 then advance before the next call. Record that gap separately when inspecting
 standalone traces.
 
-The returned `StepResult` has `reward=None`, `terminated=False`,
-`truncated=False` and `info["episode_evaluated"]=False`. Task rewards, the
-episode horizon and the landing evaluator still need implementation. The live
-checks recorded above cover the single-tick profiles. The 10 Hz task interval
-still needs a game run with the selected descent save.
+The adapter also keeps provisional episode state. It evaluates contact from
+`Vessel.situation` (`landed` or `splashed`) using the per-tick samples, records
+the first touchdown with the last airborne speed, tilt and angular speed, and
+accumulates the stable window while contact continues. `crash`, `safe_landing`
+and `fuel_exhausted` set `terminated`; `timeout` sets `truncated`; `reward`
+remains `None`. Calling `step()` after a terminal or truncated episode raises
+`EpisodeDoneError` until `reset()` is called. This is provisional mechanical
+evaluation, not task-level landing validation.
+
 
 ### Reset
 
@@ -202,6 +221,47 @@ Loading does not depend on `SpaceCenter.can_save`; that flag only describes
 whether the current game state can be saved. Low-altitude saves remain
 loadable even when `can_save` is false.
 
+### Debug snapshot creation
+
+`create_initial_save(...)` creates a named low-altitude save with a debug-set
+state:
+
+```python
+from ksp_env import KSPEnv
+
+env = KSPEnv.from_config("configs/ksp_mun_test.toml")
+env.connect()
+try:
+    info = env.create_initial_save(
+        "Mun descent test 1",
+        position_m=(0.0, 0.0, 140.0),
+        velocity_m_s=(0.0, 0.0, -5.0),
+        body_z_direction=(0.0, 0.0, 1.0),
+        save_dir="/mnt/e/.../saves/Munar landing",
+        verify=True,
+    )
+finally:
+    env.close()
+```
+
+The method:
+
+- neutralizes controls;
+- unpauses for kRPC `Debug.set_position/set_velocity` (those calls block while
+  paused);
+- sets attitude from the task `+z` direction through the configured fixed
+  body-to-task rotation;
+- saves through `SpaceCenter.save`, which does not check KSP's UI `can_save`;
+- records `can_save_before/after`, requested and observed state, and optional
+  save-file SHA-256;
+- optionally reloads and verifies the snapshot.
+
+The debug calls take time and advance the game, so the saved state is recorded
+as observed, not assumed to equal the requested state. `save_dir` is optional;
+without it the method cannot detect an existing same-named save. This is a
+synthetic debug snapshot, not a task-grade reset or landing result.
+
+
 ## Error taxonomy
 
 | Exception | Meaning |
@@ -211,6 +271,8 @@ loadable even when `can_save` is false.
 | `VesselError` | No active vessel, or wrong scene |
 | `ResetError` | Named save could not be loaded/verified |
 | `TickError` | Held tick or step timing failed |
+| `EpisodeDoneError` | `step()` called after a terminal or truncated episode |
+| `SnapshotError` | Debug snapshot creation, save or verification failed |
 | `InfrastructureError` | Base class for the four infrastructure failures above |
 
 Infrastructure failures must never be converted into a successful or failed
@@ -251,7 +313,7 @@ KSP_LIVE=1 .venv/bin/python -m unittest discover -s tests -p 'test_ksp_env_live.
 ```
 
 Live adapter mechanics, including named-save reset and one zero-action
-physics step:
+control interval:
 
 ```sh
 KSP_LIVE_RESET_STEP=1 .venv/bin/python -m unittest discover -s tests -p 'test_ksp_env_live.py' -v

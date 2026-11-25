@@ -1,5 +1,113 @@
 # Validation record
 
+## 2026-11-25 — Debug-generated low-altitude snapshot
+
+`KSPEnv.create_initial_save` was exercised live from `Mun landing 1`. The
+requested state was 140 m above the test target, `(0, 0, -5)` m/s, task body
+`+z` up, zero angular velocity and full resources. The vessel started in the
+high save with `can_save=True`; after the debug setup the game reported
+`can_save=False`, and `SpaceCenter.save` still wrote the named snapshot. The
+saved file had SHA-256
+`d27f26fa764c7df39d03bb3b4e223d9ad48fbf8ed2b6d22c56fffdb62ddb4d38`.
+
+The debug calls themselves advanced the game by roughly five seconds per
+position/velocity call, so the saved state was not identical to the request.
+After reload, the adapter observed:
+
+```text
+position:            (0.118, 0.000, 92.699) m
+velocity:            (-0.015, 0.000, -14.868) m/s
+attitude quaternion: (0.000009, -0.000009, -0.707107, 0.707106)
+tilt (task +z):      0.00145 deg
+fuel:                450.0
+```
+
+The task-frame tilt was therefore effectively upright, confirming the fixed
+`body_to_task_rotation_xyzw` mapping in the test profile. The generated test
+save was removed and the game was restored to `Mun landing-100m`. A separate
+`reset(save_name="Mun landing-100m")` also succeeded while `can_save=False`,
+confirming that the load path does not depend on the save restriction. This is a
+synthetic debug snapshot, not a task-grade initial state or landing result. The
+three readiness flags remain `false`.
+
+A second snapshot was kept as `Mun landing-debug-10m`. Its saved state was
+10.05 m above the target, `(0, 0, -1.31)` m/s, task-frame tilt 0.0014° and
+`can_save=False`; the file SHA-256 is
+`7ab85fa78f2cf1a246c0439e5b71db4f3aac2cfbb070639da422b48a48d78530`.
+With zero throttle, the adapter detected contact after 20 control steps at a
+pre-impact speed of 5.153 m/s and tilt 0.0068°, classified it as `crash` and set
+`terminated=True`. A simple hover-throttle descent reduced vertical speed to
+about 0.45 m/s but was still airborne at 5.4 m after 60 steps, with tilt drifting
+to about 8° because no attitude controller was active. The snapshot was restored
+and the game left paused; no safe landing or task-level validation is claimed.
+
+## 2026-11-25 — Integrated contact and snapshot check
+
+The fixed-frame, snapshot and contact work was rebased onto the game-time
+stepping branch. From `Mun landing-debug-10m` with `can_save=False`, `reset()`
+loaded the save and reported 10.0 m altitude, `-1.31` m/s vertical speed and
+0.0015° task-frame tilt. A 10 Hz step advanced five physics ticks and 0.1 s of
+UT; consecutive `control_session()` steps shared their UT boundary.
+
+With zero throttle, the integrated evaluator detected contact after 21 control
+steps. The touchdown event used the preceding airborne tick: 5.312 m/s total
+speed, 5.312 m/s vertical speed, 0.0069° tilt and 0.093 m horizontal error.
+It classified the attempt as `crash` and set `terminated=True`. A temporary
+`create_initial_save` snapshot was also created and verified at 9.77 m with
+`can_save=False` and then deleted. These are synthetic debug checks, not a
+task-grade landing result; all readiness flags remain `false`.
+
+## 2026-11-25 — KSP adapter control interval and contact mechanics
+
+The adapter now advances one configured control interval per `step()` and keeps
+provisional contact/stability state. Offline tests use a fake kRPC transport:
+the 10 Hz case advances five 0.02 s ticks, records `dt_s = 0.1`, detects the
+first `landed` transition, takes impact metrics from the preceding airborne
+sample, completes a stable window, and classifies unsafe contact, liftoff,
+timeout and vessel loss. The kRPC-enabled `.venv` root suite ran 40 cases with
+two opt-in live checks skipped; an interpreter without kRPC also skips the
+thirteen step/snapshot cases. The simulator suite passed 61 with one skip and
+the agent suite passed 97 with one skip.
+
+The live kRPC server was started after the offline work. `KSP_LIVE_RESET_STEP=1`
+with `configs/ksp_mun_test.toml` passed: `SpaceCenter.load("Mun landing 1")`
+returned the `两级着陆器` in Flight, and one zero-action step advanced UT from
+`369.87999999995355` to `369.97999999995346` over five physics ticks. The
+measured `dt_s` was `0.09999999999990905` s for the configured 0.1 s interval.
+The vessel remained `orbiting`, `contact=False`, `status="flying"`,
+`surface_altitude_m=12633.5`, `tilt_deg=82.739`, `angular_speed_rad_s=0.0000849`
+and `main_engine_fuel=450.0`; no staging was used and `close()` neutralized the
+controls. This is live control-interval evidence only. Live touchdown detection
+is still pending because the available Mun save is an orbit at about 12.6 km,
+not a descent snapshot. The earlier 2026-11-18 live evidence covers the previous
+one-tick adapter. The three readiness flags remain `false`.
+
+## 2026-11-25 — S3 policy handoff release
+
+The validation-selected S3 policy was published as release
+`s3-source-seed33-r22-v1` for simulator-side reuse. The release is not a KSP
+policy-transfer result and does not change the KSP readiness flags.
+
+| Artifact | Identity |
+| --- | --- |
+| Release ZIP | `s3-source-seed33-r22-v1.zip`, 109,653 bytes, SHA-256 `01e5dad61253d1910e96b343e8d0dbe7719d8b59f8cab7139e10c003983812f9` |
+| `policy.pt` | 82,185 bytes, SHA-256 `4cb558d7e7fa66e0c9dca317b96c0d34dec58a60deba99802768178e1be57fee` |
+| `s3-validation.json` | File SHA-256 `d5217364bed2ecde6b0ee7da41e5d10e2614aa8c5942858caa18002a99d40a1f`; manifest SHA-256 `2bf7a0898b9ed4f38dd46f996765f675a97fe703f0c9dcc0fee83727d0e51321` |
+| `s3-test.json` | File SHA-256 `eeadaa26e687100577b763aad68ef9a5d4f7aa70315bb7803536153a9b865478`; manifest SHA-256 `c12a88bc1047314fb482bbeec67ba5395e608cdd8be444e7f212f23e8a483f35` |
+| Source checkpoint | SHA-256 `a4451b97f733712c4d7832572d787ff24b816d214bb9f55fc03cdfc0837eae65` |
+| Reference code revision | `0e4ff9daef78bf3ceba0e467288b62a4ffaccae0` |
+| Runtime | Python 3.14.4, PyTorch 2.15.0, NumPy 2.5.4, Gymnasium 1.4.0 |
+
+The bundle's `handoff.json` records an eight-frame reference probe from the
+first validation start, `validation-2026-000000`. The public verifier checks the
+bundle file hashes, both manifests and those eight CPU actions. Release
+acceptance additionally compared the exported policy with the source checkpoint
+on the first 12 frames of each of the 100 validation starts, 1,200 frames in
+total; all four action components had a maximum absolute difference of 0. The
+source checkpoint is maintained outside the repository, so the 1,200-frame
+comparison is recorded here as maintainer release evidence and cannot be
+reproduced from the public bundle alone.
+
 ## 2026-11-25 — Stable S3 training in the nominal 6DOF simulator
 
 From a fresh behavior-cloning warm start, seeds 31, 32 and 33 each completed 24 online iterations. Each had 100/100 safe landings at every scheduled validation and 100/100 safe in-target landings at iteration 24. Validation selected seed 33, iteration 22, by safety, safe in-target rate, raw simulator mean return and then later iteration. The selected policy met all gates on the same test manifest used in the November 24 study.
@@ -48,7 +156,7 @@ The [configuration](../agent/configs/s3_nominal.json) removes the actor's termin
 
 Replay SHA-256 `b26f50ac573ea3f7fa1113cc7137bb4868cf3757caf4e53a7e2fb33ac269021c`, initial world model `cade1219d72c89bf5219690be3ec8a7837a09f4a681a1771a124d66a3fad7cff`, validation starts `2bf7a0898b9ed4f38dd46f996765f675a97fe703f0c9dcc0fee83727d0e51321`, test starts `c12a88bc1047314fb482bbeec67ba5395e608cdd8be444e7f212f23e8a483f35` and selected checkpoint `a4451b97f733712c4d7832572d787ff24b816d214bb9f55fc03cdfc0837eae65`.
 
-Run `agent/scripts/launch_seeds.sh --device cpu --seeds 31,32,33 --jobs-per-device 3 --out-root agent/runs/s3-stable` from the repository root after the data preparation in the [agent instructions](../agent/README.md). Use the three run directories for `report`, `plot` and `policy-risk`. The local outputs are `report/report.md`, `risk/index.json`, `validation-curve.png` and `probe-reproduction.json` under that run root. The implementation passed 96 agent tests and 61 simulator tests, with one skipped in each suite. Offline unittest discovery ran 28 cases with five skips. The critic-slope tool reproduced all 630 paired perturbations from the seed-32 reference, including both the predicted and the measured return differences. The archived recipe and its November 24 acceptance follow below.
+Run `agent/scripts/launch_seeds.sh --device cpu --seeds 31,32,33 --jobs-per-device 3 --out-root agent/runs/s3-stable` from the repository root after the data preparation in the [agent instructions](../agent/README.md). Use the three run directories for `report`, `plot` and `policy-risk`. The local outputs are `report/report.md`, `risk/index.json`, `validation-curve.png` and `probe-reproduction.json` under that run root. The implementation passed 97 agent tests and 61 simulator tests, with one skipped in each suite. Offline unittest discovery ran 29 cases with five skips. The critic-slope tool reproduced all 630 paired perturbations from the seed-32 reference, including both the predicted and the measured return differences. The archived recipe and its November 24 acceptance follow below.
 
 ## 2026-11-24 — S3 nominal 6DOF simulator landing
 

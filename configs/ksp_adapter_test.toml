@@ -1,8 +1,9 @@
 # Adapter test profile. This is NOT the Mun landing task contract.
 #
 # It exists only to exercise the live KSP adapter on the local launchpad save:
-# connection, observation assembly, one-tick stepping and named-save reset.
-# The readiness flags stay false and none of these values are task decisions.
+# connection, observation assembly, one fixed control interval and named-save
+# reset. The readiness flags stay false and none of these values are task
+# decisions.
 status = "adapter_test_only"
 task = "transport_adapter_test"
 target_body = "Kerbin"
@@ -47,6 +48,9 @@ frame = "target_surface"
 units = "SI"
 normalization = "none_test_only"
 main_engine_fuel_resource = "LiquidFuel"
+# Test-only fixed KSP body -> task body rotation.  This mapping sends the
+# KSP vessel +Y axis to task +Z; the final craft mapping remains TBD.
+body_to_task_rotation_xyzw = [0.7071067811865476, 0.0, 0.0, 0.7071067811865476]
 
 [action]
 fields = ["rcs_pitch", "rcs_yaw", "rcs_roll", "main_engine_throttle"]
@@ -55,12 +59,13 @@ throttle_range = [0.0, 1.0]
 autopilot_inner_loop = false
 
 [safety]
-# Landing thresholds stay TBD: this profile does not validate a landing.
+# Test-only copy of the frozen task limits. This profile does not validate a
+# landing and the readiness flags stay false.
 stable_window_s = 5.0
-max_touchdown_speed_m_s = "TBD"
-max_touchdown_tilt_deg = "TBD"
-max_touchdown_angular_velocity_deg_s = "TBD"
-target_radius_m = "TBD"
+max_touchdown_speed_m_s = 2.0
+max_touchdown_tilt_deg = 10.0
+max_touchdown_angular_velocity_deg_s = 11.459155902616466  # 0.2 rad/s
+target_radius_m = 5.0
 
 [implementation]
 dynamics = "rigid_body_6dof"

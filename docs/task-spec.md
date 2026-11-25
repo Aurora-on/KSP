@@ -43,14 +43,14 @@ Do not hide an autopilot or attitude controller inside the environment. If one i
 
 ## 4. Reset and step semantics
 
-- Reset uses a named save/snapshot, loads it regardless of `can_save`, waits for `game_state_loads`, reacquires state and verifies post-reset tolerances. `can_save` describes saving only.
+- Reset uses a named save/snapshot, checks `game_state_loads` and verifies post-reset tolerances. `SpaceCenter.can_save` describes saving, not loading; it must not block a load.
 - The exact save name, snapshot hash and tolerance are **TBD**.
 - Stepping uses kRPC 0.7 `hold_tick`, `next_tick` and `release_tick`. For consecutive task transitions, read the first observation and issue actions inside a control session. The adapter holds the physics tick across policy decisions and releases it on session exit. Standalone steps release their own hold. [Adapter API](ksp-env.md#stepping-by-game-time)
 - Record the actual universal-time delta for every step and compare it with the intended action interval.
 - Do not wait for streams while holding a tick. Use measured timing to detect hold timeouts.
 - Return Gymnasium-style `terminated` for task outcomes and `truncated` for time limits. Connection, reset and tick failures are infrastructure errors, not successful or failed landings.
 
-Implementation note: the core adapter uses Gymnasium-compatible `terminated`/`truncated` semantics but does not depend on the `gymnasium` package. A `gym.Env` wrapper is deferred until the reward, observation space and action space are fixed.
+Implementation note: the core adapter uses Gymnasium-compatible `terminated`/`truncated` semantics but does not depend on the `gymnasium` package. A `gym.Env` wrapper is deferred until the reward, observation space and action space are fixed. The KSP adapter's current contact detector uses `Vessel.situation` and records pre-impact and contact samples; its test target frame is right-handed with `x=east, y=south, z=up`. A fixed `body_to_task_rotation_xyzw` maps the KSP craft body frame to the task body frame; it remains `TBD` for the final craft. The terrain/gear clearance reference and KSP damage mapping also remain `TBD`.
 
 ## 5. Safety, precision and failure
 
@@ -96,5 +96,6 @@ The following MUST remain marked `TBD` until a decision is recorded:
 - KSP interaction budget and per-group simulator budget.
 - OOD perturbation ranges.
 - Observation normalization and action scaling.
+- Fixed KSP body-to-task attitude rotation for the final craft.
 
 `initial_state_ready`, `success_thresholds_ready` and `reset_step_validated` stay `false` until the corresponding acceptance checks pass.
