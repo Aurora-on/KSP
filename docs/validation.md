@@ -44,8 +44,10 @@ and the game left paused; no safe landing or task-level validation is claimed.
 ## 2026-11-25 — Candidate scene measurement
 
 The existing `两级着陆器` and the equatorial point at latitude 0° and longitude
-139.70616° were measured as the candidate craft and site. The pass was
-read-only: it sent no controls and did not save or load the game.
+139.70616° were measured as the candidate craft and site. The initial pass was
+read-only: it sent no controls and did not save or load the game. A separate
+terrain check moved the craft out of the ray path with kRPC `Debug`, measured
+the target, and then restored the candidate save.
 
 The active craft reported 11,460 kg wet mass, 6,060 kg dry mass and 5,400 kg
 of resources. Its four active `liquidEngine3.v2` engines consume LiquidFuel and
@@ -55,11 +57,18 @@ LiquidFuel/Oxidizer was 450/550 units, or 2,250/2,750 kg; Monopropellant was 40
 units (160 kg) and SolidFuel 32 units (240 kg). Principal moments were
 18,760.8, 20,964.0 and 18,052.6 kg·m².
 
-A 5 m terrain grid around the target gave a fitted slope of 0.0700°, terrain
-height at the target of 10.574 m and an RMS residual of 0.191 m. The
-target-center ray hit the lander cabin, so that sample was excluded from the
-fit. The vessel's reported surface altitude was 9.997 m. The configured target
-altitude is still 0 m, and the clearance reference remains `TBD`.
+A 5 m terrain grid around the target, measured with the craft out of the ray
+path, gave a fitted slope of 6.425°, terrain height at the target of -0.076 m
+and an RMS residual of 0.054 m. A wider check found the terrain rising to about
+100 m within 10 m to the north, so the point is next to a steep rise rather
+than on an unqualified flat site. The craft used for the base snapshot reported
+80.852 m surface altitude. The configured target altitude is still 0 m, and the
+clearance reference remains `TBD`.
+
+A 110 m target-frame base save (`Mun landing-candidate-100m`) was also created
+and verified; the debug calls advanced the state, so the observed surface
+altitude was 80.852 m rather than the requested value. This base save is only a
+candidate asset and is not a task-grade initial state.
 
 Following the measurement, the team decided that `main_engine_fuel` is the
 total mass of the configured main-engine propellants in kg. For this craft the

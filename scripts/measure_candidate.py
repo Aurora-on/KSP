@@ -287,18 +287,25 @@ def build_report(
         raise RuntimeError("no active vessel")
     body = vessel.orbit.body
     latitude_deg, longitude_deg, target_altitude_m = env._target_coordinates()
+    flight = vessel.flight(body.reference_frame)
+    vessel_surface_altitude_m = float(flight.surface_altitude)
+    # Start the terrain rays below the craft but above the target datum.  A ray
+    # from a fixed 100 m starts inside the lander when it is near the target and
+    # records the craft, not the ground.
+    effective_ray_start_m = min(
+        ray_start_m, max(1.0, vessel_surface_altitude_m - 2.0)
+    )
     terrain = terrain_samples(
         conn,
         body,
         latitude_deg,
         longitude_deg,
         step_m=step_m,
-        ray_start_m=ray_start_m,
+        ray_start_m=effective_ray_start_m,
     )
     resources = resource_summary(vessel)
     engines = engine_summary(vessel)
     rcs = rcs_summary(vessel)
-    flight = vessel.flight(body.reference_frame)
     config = env.config.raw
     observation = config.get("observation", {})
     action = config.get("action", {})
@@ -332,6 +339,12 @@ def build_report(
         warnings.append(
             "The configured main_engine_fuel_resources do not cover active "
             f"engine propellants: {missing_fuel_resources}."
+        )
+    if vessel_surface_altitude_m < 3.0:
+        warnings.append(
+            "The vessel is within 3 m of the surface; terrain rays may still hit "
+            "craft parts. Move the craft aside before treating the target-center "
+            "sample as terrain."
         )
     if terrain["fit"] is None:
         warnings.append(
@@ -375,7 +388,7 @@ def build_report(
             "target_altitude_m": target_altitude_m,
             "vessel_latitude_deg": float(flight.latitude),
             "vessel_longitude_deg": float(flight.longitude),
-            "vessel_surface_altitude_m": float(flight.surface_altitude),
+            "vessel_surface_altitude_m": vessel_surface_altitude_m,
             "terrain": terrain,
         },
         "vessel": {

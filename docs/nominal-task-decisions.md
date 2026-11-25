@@ -8,9 +8,10 @@ The project lead selected the existing `两级着陆器` and the equatorial poin
 latitude 0° and longitude 139.70616° as the candidate craft and landing site for
 task integration. A first read-only measurement recorded 11,460 kg wet mass,
 6,060 kg dry mass, four active 60 kN engines and a 5 m-grid terrain slope of
-0.0700°. These are candidate measurements, not frozen task values: the target
-altitude/clearance reference, actuator calibration and named descent save
-remain open.
+6.425°. A wider check found a steep rise to about 100 m within 10 m north of
+the target. These are candidate measurements, not frozen task values: the site
+needs review or replacement, and the target altitude/clearance reference,
+actuator calibration and named descent save remain open.
 
 ## Main-engine fuel observation (2026-11-26)
 

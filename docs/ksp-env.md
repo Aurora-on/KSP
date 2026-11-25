@@ -131,8 +131,9 @@ normal. It does not send controls, save, load or modify
 ```
 
 The default terrain grid has a 5 m step, matching the frozen 5 m target radius.
-A ray that hits a vessel part is recorded but excluded from the plane fit,
-because the active craft can stand above the target. The JSON also warns when
+The ray start is lowered below the craft but kept above the target datum, so a
+nearby lander cannot be mistaken for terrain. A ray that still hits a vessel
+part is recorded but excluded from the plane fit. The JSON also warns when
 the configured target altitude differs from the measured terrain height and
 when the configured main-engine fuel resources do not cover the active engine
 propellants.
