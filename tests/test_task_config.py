@@ -56,6 +56,7 @@ class TaskConfigTests(unittest.TestCase):
         self.assertEqual(self.config["evaluation"]["ood_ranges"], "TBD")
         self.assertEqual(self.config["observation"]["normalization"], "TBD")
         self.assertEqual(self.config["observation"]["main_engine_fuel_resource"], "TBD")
+        self.assertEqual(self.config["observation"]["body_to_task_rotation_xyzw"], "TBD")
 
     def test_step_api_is_gymnasium_compatible_core(self):
         self.assertEqual(self.config["implementation"]["step_api"], "gymnasium_compatible_core")

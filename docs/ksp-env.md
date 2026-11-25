@@ -1,11 +1,11 @@
 # KSP environment adapter
 
-Status: importable adapter with a fixed control interval and provisional contact
-detection. Connection, config loading, read-only diagnostics, observation,
-reset and stepping are implemented. Task-level target, save, frame and actuator
-calibration remain `TBD` in [`task-spec.md`](task-spec.md) and
-[`configs/mun_landing.toml`](../configs/mun_landing.toml). No Mun landing has
-been validated.
+Status: importable adapter with a fixed control interval, provisional contact
+detection and a debug snapshot builder. Connection, config loading, read-only
+diagnostics, observation, reset, stepping and snapshot creation are implemented.
+Task-level target, save, frame and actuator calibration remain `TBD` in
+[`task-spec.md`](task-spec.md) and [`configs/mun_landing.toml`](../configs/mun_landing.toml).
+No Mun landing has been validated.
 
 The adapter lives in `ksp_env/`; [`scripts/`](../scripts) keeps operational
 diagnostics (`doctor.py`, `telemetry.py`, `check_environment.py`). The package
@@ -42,6 +42,7 @@ The adapter must reuse kRPC instead of reimplementing its transport or math.
 | Main-engine fuel | `Vessel.resources`, `Engine.propellants` |
 | RCS and throttle | `Vessel.control`, `Control.pitch/yaw/roll/throttle` |
 | Physics-tick stepping | `KRPC.hold_tick/next_tick/release_tick` |
+| Debug snapshot setup | `Debug.set_position/set_velocity/set_direction/set_angular_velocity/fill_all_resources` |
 | Landing state | `Vessel.situation` (`landed`, `splashed`, …), `Flight.surface_altitude` |
 | Scenario/OOD helpers | `Debug.gravity_multiplier`, `Debug.set_*`, `Engine.thrust_limit` |
 
@@ -65,6 +66,11 @@ task results. The Mun test target is not a frozen final landing site.
 The adapter builds its test target frame from kRPC's surface frame with axes
 `x=east, y=south, z=up`. The task contract's target frame is still `TBD`; this
 test frame is a mechanical convention, not a frozen task decision.
+
+The test profiles also set a fixed `body_to_task_rotation_xyzw` quaternion. It
+maps the KSP vessel body frame to the task body frame; the test mapping sends
+KSP `+Y` to task `+Z`. This rotation belongs in configuration because KSP vessel
+axes depend on how the craft was assembled. The task value remains `TBD`.
 
 ```python
 env = KSPEnv.from_config("configs/ksp_mun_test.toml")
@@ -134,6 +140,7 @@ to run until all of the following are defined:
 - `[observation].frame = "target_surface"`
 - `[scenario].target_position` (latitude, longitude, altitude)
 - `[observation].main_engine_fuel_resource`
+- `[observation].body_to_task_rotation_xyzw` (fixed craft body mapping)
 
 `step(action)` additionally requires `[action].rcs_semantics =
 "normalized_input"`, `[scenario].control_hz`, `[scenario].episode_horizon_s`
@@ -163,7 +170,49 @@ outcome. Calling `step()` after a terminal or truncated episode raises
 
 `reset(save_name=...)` loads a named save, waits for `game_state_loads` to
 advance, requires the Flight scene, and returns `(Observation, ResetInfo)`.
-No save name has been chosen yet, so it must be supplied explicitly.
+No save name has been chosen yet, so it must be supplied explicitly. Loading
+does not require `can_save`; low-altitude saves remain loadable even when KSP
+disables the UI quicksave.
+
+### Debug snapshot creation
+
+`create_initial_save(...)` creates a named low-altitude save with a debug-set
+state:
+
+```python
+from ksp_env import KSPEnv
+
+env = KSPEnv.from_config("configs/ksp_mun_test.toml")
+env.connect()
+try:
+    info = env.create_initial_save(
+        "Mun descent test 1",
+        position_m=(0.0, 0.0, 140.0),
+        velocity_m_s=(0.0, 0.0, -5.0),
+        body_z_direction=(0.0, 0.0, 1.0),
+        save_dir="/mnt/e/.../saves/Munar landing",
+        verify=True,
+    )
+finally:
+    env.close()
+```
+
+The method:
+
+- neutralizes controls;
+- unpauses for kRPC `Debug.set_position/set_velocity` (those calls block while
+  paused);
+- sets attitude from the task `+z` direction through the configured fixed
+  body-to-task rotation;
+- saves through `SpaceCenter.save`, which does not check KSP's UI `can_save`;
+- records `can_save_before/after`, requested and observed state, and optional
+  save-file SHA-256;
+- optionally reloads and verifies the snapshot.
+
+The debug calls take time and advance the game, so the saved state is recorded
+as observed, not assumed to equal the requested state. `save_dir` is optional;
+without it the method cannot detect an existing same-named save. This is a
+synthetic debug snapshot, not a task-grade reset or landing result.
 
 ## Error taxonomy
 
@@ -175,6 +224,7 @@ No save name has been chosen yet, so it must be supplied explicitly.
 | `ResetError` | Named save could not be loaded/verified |
 | `TickError` | Held tick or step timing failed |
 | `EpisodeDoneError` | `step()` called after a terminal or truncated episode |
+| `SnapshotError` | Debug snapshot creation, save or verification failed |
 | `InfrastructureError` | Base class for the four infrastructure failures above |
 
 Infrastructure failures must never be converted into a successful or failed

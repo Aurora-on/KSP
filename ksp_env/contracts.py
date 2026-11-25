@@ -55,6 +55,10 @@ class EpisodeDoneError(KSPEnvError):
     """``step()`` was called after a terminal or truncated episode."""
 
 
+class SnapshotError(KSPEnvError):
+    """A debug-generated initial save could not be created or verified."""
+
+
 def is_tbd(value: object) -> bool:
     """Return whether a configuration value is the explicit ``TBD`` marker."""
 
@@ -194,6 +198,25 @@ class ResetInfo:
     scene: str
     vessel_name: str
     elapsed_s: float | None = None
+
+
+@dataclass(frozen=True)
+class SnapshotInfo:
+    """Metadata for a debug-generated initial save."""
+
+    save_name: str
+    ut_s: float
+    game_state_loads: int
+    vessel_name: str
+    body_name: str
+    target_position: tuple[float, float, float]
+    requested: Mapping[str, Any]
+    observed: Mapping[str, Any] | None
+    can_save_before: bool
+    can_save_after: bool
+    verified: bool
+    save_path: str | None = None
+    save_sha256: str | None = None
 
 
 @dataclass(frozen=True)

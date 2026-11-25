@@ -1,5 +1,35 @@
 # Validation record
 
+## 2026-11-25 — Debug-generated low-altitude snapshot
+
+`KSPEnv.create_initial_save` was exercised live from `Mun landing 1`. The
+requested state was 140 m above the test target, `(0, 0, -5)` m/s, task body
+`+z` up, zero angular velocity and full resources. The vessel started in the
+high save with `can_save=True`; after the debug setup the game reported
+`can_save=False`, and `SpaceCenter.save` still wrote the named snapshot. The
+saved file had SHA-256
+`d27f26fa764c7df39d03bb3b4e223d9ad48fbf8ed2b6d22c56fffdb62ddb4d38`.
+
+The debug calls themselves advanced the game by roughly five seconds per
+position/velocity call, so the saved state was not identical to the request.
+After reload, the adapter observed:
+
+```text
+position:            (0.118, 0.000, 92.699) m
+velocity:            (-0.015, 0.000, -14.868) m/s
+attitude quaternion: (0.000009, -0.000009, -0.707107, 0.707106)
+tilt (task +z):      0.00145 deg
+fuel:                450.0
+```
+
+The task-frame tilt was therefore effectively upright, confirming the fixed
+`body_to_task_rotation_xyzw` mapping in the test profile. The generated test
+save was removed and the game was restored to `Mun landing-100m`. A separate
+`reset(save_name="Mun landing-100m")` also succeeded while `can_save=False`,
+confirming that the load path does not depend on the save restriction. This is a
+synthetic debug snapshot, not a task-grade initial state or landing result. The
+three readiness flags remain `false`.
+
 ## 2026-11-25 — KSP adapter control interval and contact mechanics
 
 The adapter now advances one configured control interval per `step()` and keeps
@@ -7,10 +37,10 @@ provisional contact/stability state. Offline tests use a fake kRPC transport:
 the 10 Hz case advances five 0.02 s ticks, records `dt_s = 0.1`, detects the
 first `landed` transition, takes impact metrics from the preceding airborne
 sample, completes a stable window, and classifies unsafe contact, liftoff,
-timeout and vessel loss. The kRPC-enabled `.venv` root suite ran 37 cases with
-two opt-in live checks skipped; an interpreter without kRPC also skips the eleven
-step-sequencing cases. The simulator suite passed 61 with one skip and the agent
-suite passed 97 with one skip.
+timeout and vessel loss. The kRPC-enabled `.venv` root suite ran 40 cases with
+two opt-in live checks skipped; an interpreter without kRPC also skips the
+thirteen step/snapshot cases. The simulator suite passed 61 with one skip and
+the agent suite passed 97 with one skip.
 
 The live kRPC server was started after the offline work. `KSP_LIVE_RESET_STEP=1`
 with `configs/ksp_mun_test.toml` passed: `SpaceCenter.load("Mun landing 1")`

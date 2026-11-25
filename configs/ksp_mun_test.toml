@@ -47,6 +47,9 @@ frame = "target_surface"
 units = "SI"
 normalization = "none_test_only"
 main_engine_fuel_resource = "LiquidFuel"
+# Test-only fixed KSP body -> task body rotation.  This mapping sends the
+# KSP vessel +Y axis to task +Z; the final craft mapping remains TBD.
+body_to_task_rotation_xyzw = [0.7071067811865476, 0.0, 0.0, 0.7071067811865476]
 
 [action]
 fields = ["rcs_pitch", "rcs_yaw", "rcs_roll", "main_engine_throttle"]

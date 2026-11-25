@@ -8,9 +8,11 @@ sequencing and infrastructure error classification.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Mapping
 
@@ -25,6 +27,8 @@ from .contracts import (
     Observation,
     ResetError,
     ResetInfo,
+    SnapshotError,
+    SnapshotInfo,
     StepResult,
     TickError,
     VesselError,
@@ -32,6 +36,16 @@ from .contracts import (
     load_config,
     require_defined,
     require_number,
+)
+from .geometry import (
+    Quaternion,
+    Vector3,
+    inverse_transform_body_vector,
+    normalize_quaternion,
+    quaternion_from_unit_vectors,
+    rotate_vector,
+    transform_attitude,
+    transform_body_vector,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - imported lazily at runtime
@@ -272,6 +286,36 @@ class KSPEnv:
         self._episode_horizon_s()
         self._require_safety_config()
 
+    @staticmethod
+    def _require_vector3(value: object, name: str) -> Vector3:
+        if not isinstance(value, (list, tuple)) or len(value) != 3:
+            raise ConfigurationError(f"{name} must contain three numbers")
+        components = tuple(require_number(component, name) for component in value)
+        return components  # type: ignore[return-value]
+
+    def _body_to_task_rotation(self) -> Quaternion:
+        observation = self._observation_config()
+        value = observation.get("body_to_task_rotation_xyzw")
+        if is_tbd(value):
+            raise ConfigurationError("[observation].body_to_task_rotation_xyzw is TBD")
+        if not isinstance(value, (list, tuple)) or len(value) != 4:
+            raise ConfigurationError(
+                "[observation].body_to_task_rotation_xyzw must contain four numbers"
+            )
+        try:
+            quaternion = normalize_quaternion(
+                tuple(float(component) for component in value)  # type: ignore[arg-type]
+            )
+        except (TypeError, ValueError) as exc:
+            raise ConfigurationError(
+                "[observation].body_to_task_rotation_xyzw must be a finite nonzero quaternion"
+            ) from exc
+        if not all(math.isfinite(component) for component in quaternion):
+            raise ConfigurationError(
+                "[observation].body_to_task_rotation_xyzw must be finite"
+            )
+        return quaternion
+
     def _require_observation_config(self) -> None:
         observation = self._observation_config()
         frame = observation.get("frame")
@@ -284,6 +328,7 @@ class KSPEnv:
         resource = observation.get("main_engine_fuel_resource")
         if is_tbd(resource) or not isinstance(resource, str) or not resource.strip():
             raise ConfigurationError("[observation].main_engine_fuel_resource is TBD")
+        self._body_to_task_rotation()
         self._target_coordinates()
 
     def _require_action_config(self) -> None:
@@ -434,6 +479,7 @@ class KSPEnv:
         vessel = self._require_flight()
         frame = self._target_reference_frame()
         fuel_resource = self._observation_config()["main_engine_fuel_resource"]
+        body_to_task = self._body_to_task_rotation()
 
         resources = vessel.resources
         if not resources.has_resource(fuel_resource):
@@ -442,9 +488,12 @@ class KSPEnv:
         return Observation(
             position_m=tuple(float(value) for value in vessel.position(frame)),
             velocity_m_s=tuple(float(value) for value in vessel.velocity(frame)),
-            attitude_quaternion=tuple(float(value) for value in vessel.rotation(frame)),
-            angular_velocity_rad_s=tuple(
-                float(value) for value in vessel.angular_velocity(frame)
+            attitude_quaternion=transform_attitude(
+                tuple(float(value) for value in vessel.rotation(frame)), body_to_task
+            ),
+            angular_velocity_rad_s=transform_body_vector(
+                tuple(float(value) for value in vessel.angular_velocity(frame)),
+                body_to_task,
             ),
             main_engine_fuel=float(resources.amount(fuel_resource)),
         )
@@ -821,6 +870,166 @@ class KSPEnv:
         )
 
     # ------------------------------------------------------------------
+    # Snapshot creation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _snapshot_state(observation: Observation) -> dict[str, Any]:
+        return {
+            "position_m": list(observation.position_m),
+            "velocity_m_s": list(observation.velocity_m_s),
+            "attitude_quaternion": list(observation.attitude_quaternion),
+            "angular_velocity_rad_s": list(observation.angular_velocity_rad_s),
+            "main_engine_fuel": observation.main_engine_fuel,
+        }
+
+    def create_initial_save(
+        self,
+        save_name: str,
+        *,
+        position_m: tuple[float, float, float],
+        velocity_m_s: tuple[float, float, float],
+        body_z_direction: tuple[float, float, float] = (0.0, 0.0, 1.0),
+        roll_deg: float = 0.0,
+        angular_velocity_rad_s: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        fill_resources: bool = True,
+        verify: bool = True,
+        overwrite: bool = False,
+        save_dir: str | Path | None = None,
+    ) -> SnapshotInfo:
+        """Create a named low-altitude save with a debug-set initial state.
+
+        The position, velocity, body +z direction and angular velocity are in
+        the adapter's target frame.  The method uses kRPC's ``Debug`` service,
+        then saves directly through ``SpaceCenter.save``; the latter bypasses
+        KSP's UI quicksave restriction.  This is a test/calibration tool, not a
+        task-grade reset or landing result.
+        """
+
+        if not isinstance(save_name, str) or not save_name.strip():
+            raise ConfigurationError("save_name must be a non-empty string")
+        save_name = save_name.strip()
+        if any(separator in save_name for separator in ("/", "\\")):
+            raise ConfigurationError("save_name must not contain path separators")
+
+        conn = self._require_connection()
+        self._require_observation_config()
+        self._require_flight()
+        frame = self._target_reference_frame()
+        body_to_task = self._body_to_task_rotation()
+        position = self._require_vector3(position_m, "position_m")
+        velocity = self._require_vector3(velocity_m_s, "velocity_m_s")
+        body_z = self._require_vector3(body_z_direction, "body_z_direction")
+        angular = self._require_vector3(angular_velocity_rad_s, "angular_velocity_rad_s")
+        roll = require_number(roll_deg, "roll_deg")
+
+        body_z_norm = math.sqrt(sum(value * value for value in body_z))
+        if body_z_norm == 0.0:
+            raise ConfigurationError("body_z_direction must not be zero")
+        body_z = tuple(value / body_z_norm for value in body_z)
+
+        save_path = (
+            Path(save_dir) / f"{save_name}.sfs" if save_dir is not None else None
+        )
+        if save_path is not None and save_path.exists() and not overwrite:
+            raise SnapshotError(
+                f"snapshot {save_name!r} already exists; pass overwrite=True to replace it"
+            )
+
+        vessel = self._require_flight()
+        body_name = vessel.orbit.body.name
+        target_position = self._target_coordinates()
+        requested = {
+            "position_m": list(position),
+            "velocity_m_s": list(velocity),
+            "body_z_direction": list(body_z),
+            "roll_deg": roll,
+            "angular_velocity_rad_s": list(angular),
+        }
+        self._neutralize_controls(conn)
+        self._controls_dirty = False
+        self._episode = None
+        can_save_before = bool(conn.space_center.can_save)
+        save_ut_s = None
+        game_state_loads = None
+        can_save_after = None
+        pre_state = None
+
+        try:
+            conn.krpc.paused = False
+            if fill_resources:
+                conn.debug.fill_all_resources()
+            # set_direction controls the KSP vessel's +Y axis.  Convert the
+            # requested task +Z direction into the corresponding KSP +Y
+            # direction through the fixed body-to-task rotation.
+            task_z = body_z
+            ksp_y_in_task = rotate_vector(body_to_task, (0.0, 1.0, 0.0))
+            task_to_target = quaternion_from_unit_vectors((0.0, 0.0, 1.0), task_z)
+            ksp_y_in_target = rotate_vector(task_to_target, ksp_y_in_task)
+            conn.debug.set_velocity(velocity, frame)
+            conn.debug.set_direction(ksp_y_in_target, roll, frame)
+            conn.debug.set_angular_velocity(angular, frame)
+            conn.debug.set_position(position, frame)
+            conn.krpc.paused = True
+
+            pre_observation = self.observe()
+            pre_state = self._snapshot_state(pre_observation)
+            can_save_after = bool(conn.space_center.can_save)
+            conn.space_center.save(save_name)
+            save_ut_s = float(conn.space_center.ut)
+            game_state_loads = int(conn.krpc.game_state_loads)
+        except KSPEnvError:
+            raise
+        except Exception as exc:
+            raise SnapshotError(str(exc)) from exc
+        finally:
+            try:
+                conn.krpc.paused = True
+            except Exception:
+                pass
+
+        save_sha256 = None
+        if save_path is not None and save_path.exists():
+            save_sha256 = hashlib.sha256(save_path.read_bytes()).hexdigest()
+
+        observed = pre_state
+        verified = False
+        if verify:
+            try:
+                conn.space_center.load(save_name)
+                conn.krpc.paused = True
+                observed_observation = self.observe()
+                observed = self._snapshot_state(observed_observation)
+                verified = True
+            except Exception as exc:
+                raise SnapshotError(
+                    f"snapshot {save_name!r} was saved but could not be verified: {exc}"
+                ) from exc
+            finally:
+                try:
+                    conn.krpc.paused = True
+                except Exception:
+                    pass
+
+        return SnapshotInfo(
+            save_name=save_name,
+            ut_s=save_ut_s if save_ut_s is not None else float(conn.space_center.ut),
+            game_state_loads=game_state_loads
+            if game_state_loads is not None
+            else int(conn.krpc.game_state_loads),
+            vessel_name=vessel.name,
+            body_name=body_name,
+            target_position=target_position,
+            requested=requested,
+            observed=observed,
+            can_save_before=can_save_before,
+            can_save_after=can_save_after if can_save_after is not None else False,
+            verified=verified,
+            save_path=str(save_path) if save_path is not None else None,
+            save_sha256=save_sha256,
+        )
+
+    # ------------------------------------------------------------------
     # Reset
     # ------------------------------------------------------------------
 
@@ -850,8 +1059,8 @@ class KSPEnv:
                 conn.krpc.release_tick()
             except Exception:
                 pass
-            if not space_center.can_save:
-                raise ResetError("SpaceCenter.can_save is false; the game cannot be saved")
+            # can_save describes saving, not loading.  kRPC's load path does not
+            # require it and low-altitude saves are loadable.
             space_center.load(name)
             deadline = started + timeout_s
             while int(conn.krpc.game_state_loads) <= loads_before:

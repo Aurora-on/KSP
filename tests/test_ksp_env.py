@@ -4,6 +4,7 @@ No game, kRPC server, NumPy or Gymnasium is required.
 """
 
 import dataclasses
+import hashlib
 import importlib.util
 import math
 import tempfile
@@ -20,6 +21,7 @@ from ksp_env import (
     KSPEnv,
     Observation,
     ResetError,
+    SnapshotError,
     StepResult,
     TickError,
     VesselError,
@@ -28,6 +30,7 @@ from ksp_env import (
     require_defined,
     require_number,
 )
+from ksp_env.geometry import transform_attitude, transform_body_vector
 
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "ksp_adapter_test.toml"
@@ -58,6 +61,10 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(config.raw["scenario"]["save_name"], "Mun landing 1")
         self.assertEqual(config.raw["scenario"]["target_position"], [0.0, 139.70616, 0.0])
         self.assertEqual(config.raw["observation"]["main_engine_fuel_resource"], "LiquidFuel")
+        self.assertEqual(
+            config.raw["observation"]["body_to_task_rotation_xyzw"],
+            [0.7071067811865476, 0.0, 0.0, 0.7071067811865476],
+        )
         for key in ("initial_state_ready", "success_thresholds_ready", "reset_step_validated"):
             self.assertFalse(config.raw[key])
 
@@ -134,6 +141,16 @@ class ContractTests(unittest.TestCase):
                 angular_velocity_rad_s=(0.0, 0.0, 0.0),
                 main_engine_fuel=0.0,
             )
+
+    def test_quaternion_body_mapping(self):
+        quarter = math.sqrt(0.5)
+        body_to_task = (quarter, 0.0, 0.0, quarter)
+        vector = transform_body_vector((0.0, 1.0, 0.0), body_to_task)
+        for actual, expected in zip(vector, (0.0, 0.0, 1.0), strict=True):
+            self.assertAlmostEqual(actual, expected)
+        attitude = transform_attitude(body_to_task, body_to_task)
+        for actual, expected in zip(attitude, (0.0, 0.0, 0.0, 1.0), strict=True):
+            self.assertAlmostEqual(actual, expected)
 
     def test_action_ranges(self):
         self.assertEqual(Action().main_engine_throttle, 0.0)
@@ -230,8 +247,15 @@ class _FakeResources:
 
 
 class _FakeBody:
+    name = "Kerbin"
+
     def surface_reference_frame(self, latitude, longitude, altitude):
         return (latitude, longitude, altitude)
+
+
+class _FakeOrbit:
+    def __init__(self):
+        self.body = _FakeBody()
 
 
 class _FakeFlight:
@@ -249,6 +273,7 @@ class _FakeVessel:
         self.control = _FakeControl()
         self.resources = _FakeResources()
         self.situation = _EnumValue("flying")
+        self.orbit = _FakeOrbit()
         self.position = lambda frame: (0.0, 0.0, 1.0)
         self.velocity = lambda frame: (0.0, 0.0, -1.0)
         self.rotation = lambda frame: (0.0, 0.0, 0.0, 1.0)
@@ -264,6 +289,30 @@ class _FakeReferenceFrame:
         return ("relative", parent, rotation, kwargs)
 
 
+class _FakeDebug:
+    def __init__(self, vessel):
+        self.vessel = vessel
+        self.calls = []
+
+    def set_position(self, position, reference_frame=None):
+        self.calls.append(("position", tuple(position)))
+        self.vessel.position = lambda frame: tuple(position)
+
+    def set_velocity(self, velocity, reference_frame=None):
+        self.calls.append(("velocity", tuple(velocity)))
+        self.vessel.velocity = lambda frame: tuple(velocity)
+
+    def set_direction(self, direction, roll, reference_frame=None, vessel=None):
+        self.calls.append(("direction", tuple(direction), roll))
+
+    def set_angular_velocity(self, angular_velocity, reference_frame=None, vessel=None):
+        self.calls.append(("angular_velocity", tuple(angular_velocity)))
+        self.vessel.angular_velocity = lambda frame: tuple(angular_velocity)
+
+    def fill_all_resources(self, vessel=None):
+        self.calls.append(("fill_all_resources",))
+
+
 class _FakeSpaceCenter:
     def __init__(self):
         self._ut = 100.0
@@ -271,10 +320,21 @@ class _FakeSpaceCenter:
         self.bodies = {"Kerbin": _FakeBody()}
         self.can_save = True
         self.ReferenceFrame = _FakeReferenceFrame
+        self.save_dir = None
+        self.saved = []
+        self.game_state_loads = 1
 
     @property
     def ut(self):
         return self._ut
+
+    def save(self, name):
+        self.saved.append(name)
+        if self.save_dir is not None:
+            (Path(self.save_dir) / f"{name}.sfs").write_text("fake save", encoding="utf-8")
+
+    def load(self, name):
+        self.game_state_loads += 1
 
 
 class _FakeKRPC:
@@ -305,6 +365,7 @@ class _FakeConnection:
     def __init__(self):
         self.space_center = _FakeSpaceCenter()
         self.krpc = _FakeKRPC(self.space_center)
+        self.debug = _FakeDebug(self.space_center.active_vessel)
         self.closed = False
 
     def close(self):
@@ -325,6 +386,7 @@ class StepSequencingTests(unittest.TestCase):
             "observation": {
                 "frame": "target_surface",
                 "main_engine_fuel_resource": "LiquidFuel",
+                "body_to_task_rotation_xyzw": [0.0, 0.0, 0.0, 1.0],
             },
             "action": {"rcs_semantics": "normalized_input", "autopilot_inner_loop": False},
             "safety": {
@@ -485,8 +547,51 @@ class StepSequencingTests(unittest.TestCase):
         self.assertAlmostEqual(KSPEnv._tilt_deg((half, 0.0, 0.0, half)), 90.0)
         self.assertAlmostEqual(KSPEnv._tilt_deg((1.0, 0.0, 0.0, 0.0)), 180.0)
 
+    def test_create_initial_save_bypasses_can_save(self):
+        env, connection = self.make_env()
+        connection.space_center.can_save = False
+        with tempfile.TemporaryDirectory() as directory:
+            connection.space_center.save_dir = Path(directory)
+            info = env.create_initial_save(
+                "snapshot",
+                position_m=(0.0, 0.0, 100.0),
+                velocity_m_s=(0.0, 0.0, -5.0),
+                save_dir=directory,
+            )
+            self.assertFalse(info.can_save_before)
+            self.assertFalse(info.can_save_after)
+            self.assertTrue(info.verified)
+            self.assertEqual(info.save_name, "snapshot")
+            self.assertEqual(connection.space_center.saved, ["snapshot"])
+            self.assertIn(("fill_all_resources",), connection.debug.calls)
+            self.assertIn(("position", (0.0, 0.0, 100.0)), connection.debug.calls)
+            self.assertTrue(Path(info.save_path).exists())
+            self.assertEqual(
+                info.save_sha256,
+                hashlib.sha256(Path(info.save_path).read_bytes()).hexdigest(),
+            )
+            self.assertEqual(info.requested["body_z_direction"], [0.0, 0.0, 1.0])
+            self.assertIsNotNone(info.observed)
+        env.close()
+
+    def test_create_initial_save_refuses_existing_path(self):
+        env, connection = self.make_env()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "snapshot.sfs"
+            path.write_text("existing", encoding="utf-8")
+            with self.assertRaises(SnapshotError):
+                env.create_initial_save(
+                    "snapshot",
+                    position_m=(0.0, 0.0, 100.0),
+                    velocity_m_s=(0.0, 0.0, -5.0),
+                    save_dir=directory,
+                )
+            self.assertEqual(connection.debug.calls, [])
+        env.close()
+
     def test_reset_loads_named_save_and_observes(self):
         env, connection = self.make_env()
+        connection.space_center.can_save = False
 
         def load(name):
             self.assertEqual(name, "test-save")
