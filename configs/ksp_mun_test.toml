@@ -3,7 +3,8 @@
 #
 # It exercises the live adapter against saves/Munar landing/Mun landing 1.sfs:
 # target-relative observation, one fixed control interval and named-save reset.
-# The target is the sub-satellite point of the saved orbit, not a frozen final site.
+# The target is the sub-satellite point of the saved orbit. It is under
+# measurement as a candidate site, not a frozen final site.
 status = "adapter_test_only"
 task = "transport_adapter_test"
 target_body = "Mun"

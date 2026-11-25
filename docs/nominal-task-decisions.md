@@ -2,6 +2,16 @@
 
 On 2026-11-25 the project lead approved the S3 task values for nominal KSP descent. The KSP integration group will identify a flat site, supply its measured coordinates and clearance reference, and provide a reproducible descent save. The team will choose how to reconcile the craft and simulator **after measuring the craft**. The orbit test save and its sub-satellite coordinates identify the probe used to collect existing evidence. The authoritative fields are in the [shared task configuration](../configs/mun_landing.toml).
 
+## Candidate craft and site for measurement (2026-11-25)
+
+The project lead selected the existing `两级着陆器` and the equatorial point at
+latitude 0° and longitude 139.70616° as the candidate craft and landing site for
+task integration. A first read-only measurement recorded 11,460 kg wet mass,
+6,060 kg dry mass, four active 60 kN engines and a 5 m-grid terrain slope of
+0.0703°. These are candidate measurements, not frozen task values: the target
+altitude/clearance reference, fuel observation, actuator calibration and named
+descent save remain open.
+
 ## Approved task values
 
 | Quantity | Decision |

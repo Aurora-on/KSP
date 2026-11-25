@@ -115,6 +115,28 @@ the task contract. It is read-only by default; `--execute` sends short pulses.
 
 The script writes `reports/control-response.json` when `--output` is given.
 
+## Candidate-scene measurement
+
+`scripts/measure_candidate.py` is a read-only measurement pass for a candidate
+craft and landing point. It reads the active vessel's mass, dry mass, inertia,
+resources, engines and RCS parts, then casts a small vertical-ray grid around
+the configured target to estimate local terrain height, slope and surface
+normal. It does not send controls, save, load or modify
+`configs/mun_landing.toml`.
+
+```sh
+.venv/bin/python scripts/measure_candidate.py \
+  --config configs/ksp_mun_test.toml \
+  --output reports/candidate-scene.json
+```
+
+The default terrain grid has a 5 m step, matching the frozen 5 m target radius.
+A ray that hits a vessel part is recorded but excluded from the plane fit,
+because the active craft can stand above the target. The JSON also warns when
+the configured target altitude differs from the measured terrain height and
+when an engine consumes more than one propellant while the observation names a
+single fuel resource.
+
 ## Public API
 
 ```python

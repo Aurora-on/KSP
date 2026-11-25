@@ -41,6 +41,32 @@ about 0.45 m/s but was still airborne at 5.4 m after 60 steps, with tilt driftin
 to about 8° because no attitude controller was active. The snapshot was restored
 and the game left paused; no safe landing or task-level validation is claimed.
 
+## 2026-11-25 — Candidate scene measurement
+
+The existing `两级着陆器` and the equatorial point at latitude 0° and longitude
+139.70616° were measured as the candidate craft and site. The pass was
+read-only: no controls, saves or config `TBD` values were changed.
+
+The active craft reported 11,460 kg wet mass, 6,060 kg dry mass and 5,400 kg
+of resources. Its four active `liquidEngine3.v2` engines consume LiquidFuel and
+Oxidizer; their summed vacuum thrust is 240,000 N at Isp 345 s. The remaining
+main-engine part and four separation motors were inactive. The available
+LiquidFuel/Oxidizer was 450/550 units, or 2,250/2,750 kg; Monopropellant was 40
+units (160 kg) and SolidFuel 32 units (240 kg). Principal moments were
+18,760.8, 20,964.0 and 18,052.6 kg·m².
+
+A 5 m terrain grid around the target gave a fitted slope of 0.0703°, terrain
+height at the target of 10.530 m and an RMS residual of 0.191 m. The
+target-center ray hit the lander cabin, so that sample was excluded from the
+fit. The vessel's reported surface altitude was 9.952 m. The configured target
+altitude is still 0 m, and the clearance reference remains `TBD`.
+
+The configured `main_engine_fuel_resource` is `LiquidFuel`, but the active
+engines consume LiquidFuel and Oxidizer. The fuel observation and target
+clearance reference therefore remain open decisions. This is candidate
+measurement evidence, not a frozen task scene; the three readiness flags remain
+`false`.
+
 ## 2026-11-25 — Integrated contact and snapshot check
 
 The fixed-frame, snapshot and contact work was rebased onto the game-time
