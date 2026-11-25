@@ -2,8 +2,10 @@
 
 ## Project status
 
-Research scaffolding for world models for Mun landing in Kerbal Space Program.
-No landing environment, training loop or RQ1-RQ3 experiment has been implemented.
+The standalone 6DOF simulator in `simulator/` provides the landing environment,
+scripted controller and evaluation tools. The `mun-agent` package provides simulator observation transforms,
+uniform transition sampling, demonstration collection, deterministic residual dynamics, event and reward evaluation, and
+an offline RSSM comparison. S1 passed its four required gates on 50 held-out simulator episodes. S2 passed its vertical simulator gate with 100/100 safe landings after a behavior-cloning warm start and one online imagination iteration. Cloning alone also scored 100/100 on the same starts. The revised S3 recipe kept every scheduled validation at 100/100 safe across three seeds. All three round-24 policies landed safely inside the target on all 100 validation starts. The validation-selected seed-33 round-22 policy achieved 100/100 safe in-target on the fixed test and improved raw mean return over its clone. KSP landing integration and the RQ1–RQ3 experiments are pending.
 Do not claim results that are not recorded in `docs/validation.md`.
 
 ## Read first
@@ -35,11 +37,15 @@ Do not claim results that are not recorded in `docs/validation.md`.
 
 ## Verify
 
-Run these before committing code or configuration changes:
+From the repository root, use an environment with both packages and their test
+dependencies installed as described in [the agent README](agent/README.md).
+Run these checks before committing code or configuration changes.
 
 ```sh
 python3 -m compileall -q ksp_env scripts tests
 python3 -m unittest discover -s tests -v
+python -m pytest simulator/tests -q
+python -m pytest agent/tests -q
 ```
 
 For live KSP checks, follow `README.md` and use only the documented flags.

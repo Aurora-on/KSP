@@ -1,0 +1,9 @@
+{
+  "name": "M2R heldout, simulator seed 190, 50 episodes",
+  "manifest_sha256": "ba1921414c2b258add7bfee2a4e8da2a14c6e04951cb344d072fb450323cecdb",
+  "replay_sha256": [
+    "01c5f052fb2050bc4b30a3c2168de488a6fea0d56ab9aa550483899280d7075e",
+    "36636630de6082b54c71d6ba66f37752ee8ccfb7928956ff8df6d1eba910fb99"
+  ],
+  "rssm_checkpoint_sha256": "e761885ecebc424e8c16c2877a0cc69f187c83683e6ca6ee17d89f89926261f3"
+}

@@ -1,0 +1,33 @@
+{
+  "collect": {
+    "episodes": 200,
+    "noise_levels": [
+      0.0,
+      0.05,
+      0.1,
+      0.2
+    ],
+    "random_fraction": 0.05,
+    "hard_fraction": 0.6
+  },
+  "model": {
+    "deter": 256,
+    "stoch": 16,
+    "classes": 16,
+    "hidden": 256,
+    "bins": 255,
+    "dynamics_scale": 1.0,
+    "representation_scale": 0.1,
+    "free_nats": 1.0,
+    "event_weight": 1.0,
+    "ground_history": false
+  },
+  "fit": {
+    "batch_size": 16,
+    "length": 64,
+    "updates": 1000,
+    "learning_rate": 0.0003,
+    "checkpoint_every": 0,
+    "max_seconds": 7140
+  }
+}
