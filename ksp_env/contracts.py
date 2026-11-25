@@ -54,6 +54,14 @@ class TickError(InfrastructureError):
     """A held physics tick did not complete as expected."""
 
 
+class EpisodeDoneError(KSPEnvError):
+    """``step()`` was called after a terminal or truncated episode."""
+
+
+class SnapshotError(KSPEnvError):
+    """A debug-generated initial save could not be created or verified."""
+
+
 def is_tbd(value: object) -> bool:
     """Return whether a configuration value is the explicit ``TBD`` marker."""
 
@@ -169,13 +177,11 @@ class Action:
 
 @dataclass(frozen=True)
 class StepResult:
-    """One adapter step.
+    """One adapter step over a fixed control interval.
 
-    ``terminated`` and ``truncated`` follow Gymnasium semantics.  Episode
-    evaluation is not implemented yet, so :meth:`KSPEnv.step` reports
-    ``episode_evaluated=False`` in ``info`` instead of treating a step as a
-    landing outcome.  ``reward`` stays ``None`` because the task contract does
-    not define a reward.
+    ``terminated`` and ``truncated`` follow Gymnasium semantics.  The adapter
+    evaluates a provisional contact/stability outcome, but ``reward`` remains
+    ``None`` because the task contract does not define a reward yet.
     """
 
     observation: Observation
@@ -195,6 +201,25 @@ class ResetInfo:
     scene: str
     vessel_name: str
     elapsed_s: float | None = None
+
+
+@dataclass(frozen=True)
+class SnapshotInfo:
+    """Metadata for a debug-generated initial save."""
+
+    save_name: str
+    ut_s: float
+    game_state_loads: int
+    vessel_name: str
+    body_name: str
+    target_position: tuple[float, float, float]
+    requested: Mapping[str, Any]
+    observed: Mapping[str, Any] | None
+    can_save_before: bool
+    can_save_after: bool
+    verified: bool
+    save_path: str | None = None
+    save_sha256: str | None = None
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,87 @@
 # Validation record
 
+## 2026-11-25 — Debug-generated low-altitude snapshot
+
+`KSPEnv.create_initial_save` was exercised live from `Mun landing 1`. The
+requested state was 140 m above the test target, `(0, 0, -5)` m/s, task body
+`+z` up, zero angular velocity and full resources. The vessel started in the
+high save with `can_save=True`; after the debug setup the game reported
+`can_save=False`, and `SpaceCenter.save` still wrote the named snapshot. The
+saved file had SHA-256
+`d27f26fa764c7df39d03bb3b4e223d9ad48fbf8ed2b6d22c56fffdb62ddb4d38`.
+
+The debug calls themselves advanced the game by roughly five seconds per
+position/velocity call, so the saved state was not identical to the request.
+After reload, the adapter observed:
+
+```text
+position:            (0.118, 0.000, 92.699) m
+velocity:            (-0.015, 0.000, -14.868) m/s
+attitude quaternion: (0.000009, -0.000009, -0.707107, 0.707106)
+tilt (task +z):      0.00145 deg
+fuel:                450.0
+```
+
+The task-frame tilt was therefore effectively upright, confirming the fixed
+`body_to_task_rotation_xyzw` mapping in the test profile. The generated test
+save was removed and the game was restored to `Mun landing-100m`. A separate
+`reset(save_name="Mun landing-100m")` also succeeded while `can_save=False`,
+confirming that the load path does not depend on the save restriction. This is a
+synthetic debug snapshot, not a task-grade initial state or landing result. The
+three readiness flags remain `false`.
+
+A second snapshot was kept as `Mun landing-debug-10m`. Its saved state was
+10.05 m above the target, `(0, 0, -1.31)` m/s, task-frame tilt 0.0014° and
+`can_save=False`; the file SHA-256 is
+`7ab85fa78f2cf1a246c0439e5b71db4f3aac2cfbb070639da422b48a48d78530`.
+With zero throttle, the adapter detected contact after 20 control steps at a
+pre-impact speed of 5.153 m/s and tilt 0.0068°, classified it as `crash` and set
+`terminated=True`. A simple hover-throttle descent reduced vertical speed to
+about 0.45 m/s but was still airborne at 5.4 m after 60 steps, with tilt drifting
+to about 8° because no attitude controller was active. The snapshot was restored
+and the game left paused; no safe landing or task-level validation is claimed.
+
+## 2026-11-25 — Integrated contact and snapshot check
+
+The fixed-frame, snapshot and contact work was rebased onto the game-time
+stepping branch. From `Mun landing-debug-10m` with `can_save=False`, `reset()`
+loaded the save and reported 10.0 m altitude, `-1.31` m/s vertical speed and
+0.0015° task-frame tilt. A 10 Hz step advanced five physics ticks and 0.1 s of
+UT; consecutive `control_session()` steps shared their UT boundary.
+
+With zero throttle, the integrated evaluator detected contact after 21 control
+steps. The touchdown event used the preceding airborne tick: 5.312 m/s total
+speed, 5.312 m/s vertical speed, 0.0069° tilt and 0.093 m horizontal error.
+It classified the attempt as `crash` and set `terminated=True`. A temporary
+`create_initial_save` snapshot was also created and verified at 9.77 m with
+`can_save=False` and then deleted. These are synthetic debug checks, not a
+task-grade landing result; all readiness flags remain `false`.
+
+## 2026-11-25 — KSP adapter control interval and contact mechanics
+
+The adapter now advances one configured control interval per `step()` and keeps
+provisional contact/stability state. Offline tests use a fake kRPC transport:
+the 10 Hz case advances five 0.02 s ticks, records `dt_s = 0.1`, detects the
+first `landed` transition, takes impact metrics from the preceding airborne
+sample, completes a stable window, and classifies unsafe contact, liftoff,
+timeout and vessel loss. The kRPC-enabled `.venv` root suite ran 53 cases with
+two opt-in live checks skipped; an interpreter without kRPC also skips the
+thirteen step/snapshot cases. The simulator suite passed 61 with one skip and
+the agent suite passed 97 with one skip.
+
+The live kRPC server was started after the offline work. `KSP_LIVE_RESET_STEP=1`
+with `configs/ksp_mun_test.toml` passed: `SpaceCenter.load("Mun landing 1")`
+returned the `两级着陆器` in Flight, and one zero-action step advanced UT from
+`369.87999999995355` to `369.97999999995346` over five physics ticks. The
+measured `dt_s` was `0.09999999999990905` s for the configured 0.1 s interval.
+The vessel remained `orbiting`, `contact=False`, `status="flying"`,
+`surface_altitude_m=12633.5`, `tilt_deg=82.739`, `angular_speed_rad_s=0.0000849`
+and `main_engine_fuel=450.0`; no staging was used and `close()` neutralized the
+controls. This is live control-interval evidence only. Live touchdown detection
+is still pending because the available Mun save is an orbit at about 12.6 km,
+not a descent snapshot. The earlier 2026-11-18 live evidence covers the previous
+one-tick adapter. The three readiness flags remain `false`.
+
 ## 2026-11-25 — Stable S3 training in the nominal 6DOF simulator
 
 From a fresh behavior-cloning warm start, seeds 31, 32 and 33 each completed 24 online iterations. Each had 100/100 safe landings at every scheduled validation and 100/100 safe in-target landings at iteration 24. Validation selected seed 33, iteration 22, by safety, safe in-target rate, raw simulator mean return and then later iteration. The selected policy met all gates on the same test manifest used in the November 24 study.

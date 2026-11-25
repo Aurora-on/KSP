@@ -4,8 +4,9 @@ Run with a game and kRPC server available:
 
     KSP_LIVE=1 .venv/bin/python -m unittest discover -s tests -p 'test_ksp_env_live.py' -v
 
-The test is read-only and skipped by default so CI and offline checks do not
-need a running game.
+The smoke case is read-only and skipped by default so CI and offline checks do
+not need a running game. The reset/step case loads a save and writes controls;
+the current Mun test save is in orbit, so live touchdown detection is not covered.
 """
 
 import os
@@ -42,23 +43,31 @@ class LiveAdapterTests(unittest.TestCase):
 
 @unittest.skipUnless(
     os.environ.get("KSP_LIVE_RESET_STEP") == "1",
-    "set KSP_LIVE_RESET_STEP=1 to load a save and advance one physics tick",
+    "set KSP_LIVE_RESET_STEP=1 to load a save and advance one control interval",
 )
 class LiveResetStepTests(unittest.TestCase):
     def test_reset_and_one_zero_action_step(self):
         env = KSPEnv.from_config(TEST_CONFIG)
         try:
             env.connect()
+            # The bundled adapter profiles are single-tick by default.  This
+            # opt-in live test exercises the fixed task interval explicitly.
+            env.config.raw["task"] = "powered_descent"
             observation, reset_info = env.reset()
             self.assertEqual(reset_info.scene, "flight")
             self.assertGreater(reset_info.game_state_loads, 0)
             self.assertGreaterEqual(observation.main_engine_fuel, 0.0)
             result = env.step(Action())
-            self.assertFalse(result.info["episode_evaluated"])
+            control_hz = float(env.config.raw["scenario"]["control_hz"])
+            self.assertTrue(result.info["episode_evaluated"])
             self.assertIsNotNone(result.info["ut_delta_s"])
             self.assertGreater(result.info["ut_delta_s"], 0.0)
-            self.assertFalse(result.terminated)
-            self.assertFalse(result.truncated)
+            self.assertAlmostEqual(result.info["control_hz"], control_hz)
+            self.assertAlmostEqual(result.info["control_interval_s"], 1.0 / control_hz)
+            self.assertAlmostEqual(result.info["dt_s"], result.info["ut_delta_s"])
+            self.assertGreaterEqual(result.info["physics_ticks"], 1)
+            self.assertIn(result.info["status"], {"flying", "stabilizing", "safe_landing"})
+            self.assertFalse(result.info["vessel_destroyed"])
         finally:
             env.close()
 
