@@ -1,5 +1,30 @@
 # Validation record
 
+## 2026-11-25 — KSP adapter control interval and contact mechanics
+
+The adapter now advances one configured control interval per `step()` and keeps
+provisional contact/stability state. Offline tests use a fake kRPC transport:
+the 10 Hz case advances five 0.02 s ticks, records `dt_s = 0.1`, detects the
+first `landed` transition, takes impact metrics from the preceding airborne
+sample, completes a stable window, and classifies unsafe contact, liftoff,
+timeout and vessel loss. The kRPC-enabled `.venv` root suite ran 37 cases with
+two opt-in live checks skipped; an interpreter without kRPC also skips the eleven
+step-sequencing cases. The simulator suite passed 61 with one skip and the agent
+suite passed 97 with one skip.
+
+The live kRPC server was started after the offline work. `KSP_LIVE_RESET_STEP=1`
+with `configs/ksp_mun_test.toml` passed: `SpaceCenter.load("Mun landing 1")`
+returned the `两级着陆器` in Flight, and one zero-action step advanced UT from
+`369.87999999995355` to `369.97999999995346` over five physics ticks. The
+measured `dt_s` was `0.09999999999990905` s for the configured 0.1 s interval.
+The vessel remained `orbiting`, `contact=False`, `status="flying"`,
+`surface_altitude_m=12633.5`, `tilt_deg=82.739`, `angular_speed_rad_s=0.0000849`
+and `main_engine_fuel=450.0`; no staging was used and `close()` neutralized the
+controls. This is live control-interval evidence only. Live touchdown detection
+is still pending because the available Mun save is an orbit at about 12.6 km,
+not a descent snapshot. The earlier 2026-11-18 live evidence covers the previous
+one-tick adapter. The three readiness flags remain `false`.
+
 ## 2026-11-25 — S3 policy handoff release
 
 The validation-selected S3 policy was published as release

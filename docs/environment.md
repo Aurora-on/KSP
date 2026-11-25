@@ -84,7 +84,7 @@ Debug APIs may help build/reset scenarios. Freeze the intended physical variant 
 | API deployment of stock-derived test craft to Kerbin launchpad | Passed on 2026-11-06 |
 | 10 s / 50 telemetry samples; lights toggle/readback/restoration | Passed on 2026-11-06 and 2026-11-18 |
 | Scientific Python and training host | PyTorch CPU training completed on an Apple M5. Windows/WSL2 hosted the live kRPC checks. [Validation record](validation.md) |
-| KSP adapter mechanics (`ksp_env/`) | Observation, named-save reset and one zero-action 0.02 s physics step passed on the Kerbin launchpad and Mun orbit test profiles. [Adapter test profiles](ksp-env.md#adapter-test-profiles) |
+| KSP adapter mechanics (`ksp_env/`) | Observation, named-save reset and a 10 Hz zero-action step passed live on the Mun orbit test profile. Provisional contact state is covered offline; live touchdown detection awaits a descent save. [Adapter test profiles](ksp-env.md#adapter-test-profiles) |
 | Shared Mun landing task | Qualitative contract adopted 2026-11-17. The 2026-11-25 decision freezes initial-state ranges, timing, safety limits and target radius. Site, descent save and vehicle calibration remain open. [Task contract](task-spec.md) |
 | KSP powered descent | Descent snapshot, repeatable task reset, control-interval step and landing criteria await task-level validation. [Shared configuration](../configs/mun_landing.toml) |
 | Standalone simulator pretraining | The S1 deterministic world model passed all four required gates on 50 held-out episodes. In the S2 vertical diagnostic, the clone and online policy each landed safely on 100/100 validation starts. [S1 and S2 results](validation.md) |

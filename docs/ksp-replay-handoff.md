@@ -1,6 +1,6 @@
 # KSP replay handoff (draft)
 
-The world-model team can read complete simulator episodes today. The KSP adapter team can start by sharing a time-aligned raw trace and the frame and control definitions below. KSP observations, rewards and outcomes still need joint calibration. The recorded Mun orbit probe verified a named-save reset and a 0.02 s step. That step returned `reward=None`, both ending flags false and `episode_evaluated=False`. [Adapter](../ksp_env/env.py) · [StepResult](../ksp_env/contracts.py) · [Live validation](validation.md)
+The world-model team can read complete simulator episodes today. The KSP adapter team can start by sharing a time-aligned raw trace and the frame and control definitions below. KSP observations, rewards and outcomes still need joint calibration. The recorded Mun orbit probe verified a named-save reset and a 0.02 s step. That step returned `reward=None`, both ending flags false and `episode_evaluated=False`; it predates the adapter's provisional control-interval and contact state. A later 2026-11-25 run recorded a 0.1 s step over five physics ticks. [Adapter](../ksp_env/env.py) · [StepResult](../ksp_env/contracts.py) · [Live validation](validation.md)
 
 ## What the current reader accepts
 
@@ -40,6 +40,8 @@ The labels below are the world-model vocabulary. The KSP evaluator still needs a
 | `fuel_exhausted` | true / false | Source simulator aborts for exhausted main fuel while airborne. Proposed mapping from shared `fuel_exhaustion_abort`. |
 
 The source classifier learns continue/safe/crash and masks the final transition of the three rule-based aborts. An infrastructure incident (`connection_loss`, `reset_failure` or `tick_timeout`) belongs in an attempt log with the last valid UT and error, outside the completed physical outcomes. Keep a partial trace for diagnosis. [Shared failure contract](../configs/mun_landing.toml) · [Training labels](../agent/src/mun_agent/deterministic_fit.py)
+
+The KSP adapter now records a provisional `status`, `contact`, `touchdown`, `stable_time_s`, `terminated` and `truncated` from `Vessel.situation` and the frozen safety limits. It does not yet validate a task landing: target coordinates, a descent save, the terrain/gear clearance reference and KSP damage semantics remain open. Treat these fields as raw calibration evidence until the paired examples below establish the final mapping. [Adapter contract](ksp-env.md)
 
 The source model's `z < 3e-6 m` history feature was calibrated on simulator trajectories. For KSP, compare `Vessel.situation`, terrain-relative clearance corrected for craft/gear geometry, vertical and horizontal speeds, tilt, angular rate and part integrity at matched UTs. Include direct gear-contact telemetry if available and identify missing signals. Label impact from the last pre-impact sample or bracket it between raw ticks, then follow settlement. Compare an upright stationary craft, low hover, first touch, rebound and recontact to measure offsets, noise and delays before choosing a tolerance. Keep these diagnostic signals alongside the raw trace. [Simulator history](../agent/src/mun_agent/interface.py) · [KSP telemetry](ksp-env.md) · [Task safety criteria](task-spec.md)
 

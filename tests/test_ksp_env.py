@@ -14,6 +14,7 @@ from ksp_env import (
     Action,
     ConfigurationError,
     EnvConfig,
+    EpisodeDoneError,
     InfrastructureError,
     KSPConnectionError,
     KSPEnv,
@@ -233,15 +234,34 @@ class _FakeBody:
         return (latitude, longitude, altitude)
 
 
+class _FakeFlight:
+    def __init__(self, vessel):
+        self.vessel = vessel
+
+    @property
+    def surface_altitude(self):
+        return 0.0 if self.vessel.situation.name in {"landed", "splashed"} else 100.0
+
+
 class _FakeVessel:
     def __init__(self):
         self.name = "FakeVessel"
         self.control = _FakeControl()
         self.resources = _FakeResources()
+        self.situation = _EnumValue("flying")
         self.position = lambda frame: (0.0, 0.0, 1.0)
         self.velocity = lambda frame: (0.0, 0.0, -1.0)
         self.rotation = lambda frame: (0.0, 0.0, 0.0, 1.0)
         self.angular_velocity = lambda frame: (0.0, 0.0, 0.0)
+
+    def flight(self, frame):
+        return _FakeFlight(self)
+
+
+class _FakeReferenceFrame:
+    @staticmethod
+    def create_relative(parent, rotation=None, **kwargs):
+        return ("relative", parent, rotation, kwargs)
 
 
 class _FakeSpaceCenter:
@@ -250,6 +270,7 @@ class _FakeSpaceCenter:
         self.active_vessel = _FakeVessel()
         self.bodies = {"Kerbin": _FakeBody()}
         self.can_save = True
+        self.ReferenceFrame = _FakeReferenceFrame
 
     @property
     def ut(self):
@@ -263,6 +284,7 @@ class _FakeKRPC:
         self.paused = False
         self.game_state_loads = 1
         self.calls = []
+        self.on_next = None
 
     def hold_tick(self):
         self.calls.append("hold")
@@ -270,6 +292,10 @@ class _FakeKRPC:
     def next_tick(self):
         self.calls.append("next")
         self.space_center._ut += 0.02
+        callback = self.on_next
+        if callback is not None:
+            self.on_next = None
+            callback()
 
     def release_tick(self):
         self.calls.append("release")
@@ -287,15 +313,27 @@ class _FakeConnection:
 
 @unittest.skipUnless(importlib.util.find_spec("krpc") is not None, "krpc package not installed")
 class StepSequencingTests(unittest.TestCase):
-    def make_env(self):
+    def make_env(self, *, control_hz=10.0, horizon_s=90.0, stable_window_s=5.0):
         raw = {
             "target_body": "Kerbin",
-            "scenario": {"target_position": [0.0, 0.0, 0.0], "save_name": "TBD"},
+            "scenario": {
+                "target_position": [0.0, 0.0, 0.0],
+                "save_name": "TBD",
+                "control_hz": control_hz,
+                "episode_horizon_s": horizon_s,
+            },
             "observation": {
                 "frame": "target_surface",
                 "main_engine_fuel_resource": "LiquidFuel",
             },
             "action": {"rcs_semantics": "normalized_input", "autopilot_inner_loop": False},
+            "safety": {
+                "stable_window_s": stable_window_s,
+                "max_touchdown_speed_m_s": 2.0,
+                "max_touchdown_tilt_deg": 10.0,
+                "max_touchdown_angular_velocity_deg_s": 11.459155902616466,
+                "target_radius_m": 5.0,
+            },
         }
         config = EnvConfig(
             address="127.0.0.1",
@@ -312,9 +350,18 @@ class StepSequencingTests(unittest.TestCase):
     def test_step_holds_advances_and_releases(self):
         env, connection = self.make_env()
         result = env.step(Action(rcs_pitch=0.1, main_engine_throttle=0.5))
-        self.assertEqual(connection.krpc.calls, ["hold", "next", "release"])
-        self.assertAlmostEqual(result.info["ut_delta_s"], 0.02)
-        self.assertFalse(result.info["episode_evaluated"])
+        self.assertEqual(
+            connection.krpc.calls,
+            ["hold", "next", "next", "next", "next", "next", "release"],
+        )
+        self.assertAlmostEqual(result.info["ut_delta_s"], 0.1)
+        self.assertAlmostEqual(result.info["dt_s"], 0.1)
+        self.assertEqual(result.info["physics_ticks"], 5)
+        self.assertAlmostEqual(result.info["control_interval_s"], 0.1)
+        self.assertTrue(result.info["episode_evaluated"])
+        self.assertEqual(result.info["status"], "flying")
+        self.assertFalse(result.terminated)
+        self.assertFalse(result.truncated)
         self.assertEqual(connection.space_center.active_vessel.control.throttle, 0.5)
         self.assertTrue(connection.space_center.active_vessel.control.rcs)
         env.close()
@@ -331,8 +378,112 @@ class StepSequencingTests(unittest.TestCase):
         connection.space_center.active_vessel.position = fail
         with self.assertRaises(TickError):
             env.step(Action())
-        self.assertEqual(connection.krpc.calls, ["hold", "next", "release"])
+        self.assertEqual(
+            connection.krpc.calls,
+            ["hold", "next", "next", "next", "next", "next", "release"],
+        )
         env.close()
+
+    def test_contact_records_preimpact_sample_and_completes_stability_window(self):
+        env, connection = self.make_env(stable_window_s=0.2)
+        env.step(Action())
+        vessel = connection.space_center.active_vessel
+        vessel.velocity = lambda frame: (0.0, 0.0, -0.5)
+        vessel.situation = _EnumValue("landed")
+
+        result = env.step(Action())
+        touchdown = result.info["touchdown"]
+        self.assertEqual(result.info["status"], "stabilizing")
+        self.assertTrue(result.info["contact"])
+        self.assertAlmostEqual(touchdown["speed_m_s"], 1.0)
+        self.assertAlmostEqual(touchdown["preimpact_ut_s"], 100.1)
+        self.assertAlmostEqual(touchdown["contact_ut_s"], 100.2)
+        self.assertAlmostEqual(result.info["stable_time_s"], 0.0)
+
+        result = env.step(Action())
+        self.assertEqual(result.info["status"], "stabilizing")
+        self.assertAlmostEqual(result.info["stable_time_s"], 0.1)
+
+        result = env.step(Action())
+        self.assertEqual(result.info["status"], "safe_landing")
+        self.assertTrue(result.terminated)
+        self.assertFalse(result.truncated)
+        self.assertTrue(result.info["safe_in_target"])
+        with self.assertRaises(EpisodeDoneError):
+            env.step(Action())
+        env.close()
+
+    def test_unsafe_touchdown_is_crash(self):
+        env, connection = self.make_env()
+        vessel = connection.space_center.active_vessel
+        vessel.velocity = lambda frame: (0.0, 0.0, -5.0)
+        env.step(Action())
+        vessel.situation = _EnumValue("landed")
+
+        result = env.step(Action())
+        self.assertEqual(result.info["status"], "crash")
+        self.assertTrue(result.terminated)
+        self.assertFalse(result.truncated)
+        self.assertAlmostEqual(result.info["touchdown"]["speed_m_s"], 5.0)
+        env.close()
+
+    def test_liftoff_resets_stability_clock(self):
+        env, connection = self.make_env(stable_window_s=0.3)
+        env.step(Action())
+        vessel = connection.space_center.active_vessel
+        vessel.situation = _EnumValue("landed")
+        env.step(Action())
+        vessel.situation = _EnumValue("flying")
+        result = env.step(Action())
+        self.assertEqual(result.info["status"], "flying")
+        self.assertFalse(result.info["contact"])
+        self.assertEqual(result.info["stable_time_s"], 0.0)
+        env.close()
+
+    def test_timeout_is_truncated(self):
+        env, connection = self.make_env(horizon_s=0.1)
+        result = env.step(Action())
+        self.assertEqual(result.info["status"], "timeout")
+        self.assertFalse(result.terminated)
+        self.assertTrue(result.truncated)
+        with self.assertRaises(EpisodeDoneError):
+            env.step(Action())
+        env.close()
+
+    def test_vessel_loss_is_a_crash_with_stale_observation(self):
+        env, connection = self.make_env()
+        first = env.step(Action())
+        connection.krpc.on_next = lambda: setattr(connection.space_center, "active_vessel", None)
+        result = env.step(Action())
+        self.assertTrue(result.terminated)
+        self.assertFalse(result.truncated)
+        self.assertEqual(result.info["status"], "crash")
+        self.assertTrue(result.info["vessel_destroyed"])
+        self.assertTrue(result.info["observation_stale"])
+        self.assertIs(result.observation, first.observation)
+        env.close()
+
+    def test_step_can_advance_one_tick_for_adapter_profile(self):
+        env, connection = self.make_env(control_hz=50.0)
+        result = env.step(Action())
+        self.assertEqual(connection.krpc.calls, ["hold", "next", "release"])
+        self.assertAlmostEqual(result.info["dt_s"], 0.02)
+        self.assertEqual(result.info["physics_ticks"], 1)
+        env.close()
+
+    def test_step_requires_control_interval(self):
+        env, connection = self.make_env()
+        env.config.raw["scenario"]["control_hz"] = "TBD"
+        with self.assertRaises(ConfigurationError):
+            env.step(Action())
+        self.assertEqual(connection.krpc.calls, [])
+        env.close()
+
+    def test_tilt_uses_body_z_axis(self):
+        self.assertAlmostEqual(KSPEnv._tilt_deg((0.0, 0.0, 0.0, 1.0)), 0.0)
+        half = math.sqrt(0.5)
+        self.assertAlmostEqual(KSPEnv._tilt_deg((half, 0.0, 0.0, half)), 90.0)
+        self.assertAlmostEqual(KSPEnv._tilt_deg((1.0, 0.0, 0.0, 0.0)), 180.0)
 
     def test_reset_loads_named_save_and_observes(self):
         env, connection = self.make_env()

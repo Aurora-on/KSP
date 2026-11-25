@@ -2,8 +2,8 @@
 # Mun landing task contract.
 #
 # It exercises the live adapter against saves/Munar landing/Mun landing 1.sfs:
-# target-relative observation, one-tick stepping and named-save reset. The
-# target is the sub-satellite point of the saved orbit, not a frozen final site.
+# target-relative observation, one fixed control interval and named-save reset.
+# The target is the sub-satellite point of the saved orbit, not a frozen final site.
 status = "adapter_test_only"
 task = "transport_adapter_test"
 target_body = "Mun"
@@ -32,8 +32,8 @@ target_position = [0.0, 139.70616, 0.0]
 initial_position_range = "fixed_test_reset"
 initial_velocity_range = "fixed_test_reset"
 initial_attitude_range = "fixed_test_reset"
-control_hz = 50.0  # one 0.02 s KSP physics tick per step, test only
-episode_horizon_s = 120.0
+control_hz = 10.0  # task control interval for adapter mechanics, test only
+episode_horizon_s = 90.0
 
 [observation]
 fields = [
@@ -55,12 +55,13 @@ throttle_range = [0.0, 1.0]
 autopilot_inner_loop = false
 
 [safety]
-# Landing thresholds stay TBD: this profile does not validate a landing.
+# Test-only copy of the frozen task limits. This profile does not validate a
+# landing and the readiness flags stay false.
 stable_window_s = 5.0
-max_touchdown_speed_m_s = "TBD"
-max_touchdown_tilt_deg = "TBD"
-max_touchdown_angular_velocity_deg_s = "TBD"
-target_radius_m = "TBD"
+max_touchdown_speed_m_s = 2.0
+max_touchdown_tilt_deg = 10.0
+max_touchdown_angular_velocity_deg_s = 11.459155902616466  # 0.2 rad/s
+target_radius_m = 5.0
 
 [implementation]
 dynamics = "rigid_body_6dof"

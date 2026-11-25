@@ -51,6 +51,10 @@ class TickError(InfrastructureError):
     """A held physics tick did not complete as expected."""
 
 
+class EpisodeDoneError(KSPEnvError):
+    """``step()`` was called after a terminal or truncated episode."""
+
+
 def is_tbd(value: object) -> bool:
     """Return whether a configuration value is the explicit ``TBD`` marker."""
 
@@ -166,13 +170,11 @@ class Action:
 
 @dataclass(frozen=True)
 class StepResult:
-    """One adapter step.
+    """One adapter step over a fixed control interval.
 
-    ``terminated`` and ``truncated`` follow Gymnasium semantics.  Episode
-    evaluation is not implemented yet, so :meth:`KSPEnv.step` reports
-    ``episode_evaluated=False`` in ``info`` instead of treating a step as a
-    landing outcome.  ``reward`` stays ``None`` because the task contract does
-    not define a reward.
+    ``terminated`` and ``truncated`` follow Gymnasium semantics.  The adapter
+    evaluates a provisional contact/stability outcome, but ``reward`` remains
+    ``None`` because the task contract does not define a reward yet.
     """
 
     observation: Observation

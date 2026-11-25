@@ -8,14 +8,17 @@ sequencing and infrastructure error classification.
 
 from __future__ import annotations
 
+import math
 import time
+from dataclasses import dataclass
 from types import TracebackType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 from .contracts import (
     Action,
     ConfigurationError,
     EnvConfig,
+    EpisodeDoneError,
     InfrastructureError,
     KSPConnectionError,
     KSPEnvError,
@@ -35,9 +38,29 @@ if TYPE_CHECKING:  # pragma: no cover - imported lazily at runtime
     import krpc
 
 
+CONTACT_SITUATIONS = frozenset({"landed", "splashed"})
+
+
 def _enum_name(value: object) -> str:
     name = getattr(value, "name", None)
     return str(name) if name is not None else str(value)
+
+
+@dataclass
+class _EpisodeState:
+    """Mutable per-episode contact and timing state."""
+
+    started_ut_s: float
+    elapsed_s: float = 0.0
+    contact: bool = False
+    stable_time_s: float = 0.0
+    status: str = "flying"
+    touchdown: dict[str, Any] | None = None
+    last_touchdown: dict[str, Any] | None = None
+    touchdown_count: int = 0
+    previous_sample: dict[str, Any] | None = None
+    last_observation: Observation | None = None
+    done: bool = False
 
 
 class KSPEnv:
@@ -53,6 +76,7 @@ class KSPEnv:
         self._conn: Any | None = connection
         self._target_frame_cache: Any | None = None
         self._controls_dirty = False
+        self._episode: _EpisodeState | None = None
 
     @classmethod
     def from_config(cls, path: str | None = None) -> "KSPEnv":
@@ -141,6 +165,7 @@ class KSPEnv:
         finally:
             self._conn = None
             self._target_frame_cache = None
+            self._episode = None
 
     def __enter__(self) -> "KSPEnv":
         return self.connect()
@@ -193,6 +218,59 @@ class KSPEnv:
         if not isinstance(value, dict):
             raise ConfigurationError("configuration is missing the [scenario] section")
         return value
+
+    def _safety_config(self) -> dict[str, Any]:
+        value = self.config.raw.get("safety")
+        if not isinstance(value, dict):
+            raise ConfigurationError("configuration is missing the [safety] section")
+        return value
+
+    def _control_interval_s(self) -> float:
+        control_hz = require_number(
+            self._scenario_config().get("control_hz"), "[scenario].control_hz"
+        )
+        if control_hz <= 0:
+            raise ConfigurationError("[scenario].control_hz must be positive")
+        return 1.0 / control_hz
+
+    def _episode_horizon_s(self) -> float:
+        horizon_s = require_number(
+            self._scenario_config().get("episode_horizon_s"),
+            "[scenario].episode_horizon_s",
+        )
+        if horizon_s <= 0:
+            raise ConfigurationError("[scenario].episode_horizon_s must be positive")
+        return horizon_s
+
+    def _require_safety_config(self) -> dict[str, float]:
+        safety = self._safety_config()
+        values = {
+            "stable_window_s": require_number(
+                safety.get("stable_window_s"), "[safety].stable_window_s"
+            ),
+            "max_touchdown_speed_m_s": require_number(
+                safety.get("max_touchdown_speed_m_s"), "[safety].max_touchdown_speed_m_s"
+            ),
+            "max_touchdown_tilt_deg": require_number(
+                safety.get("max_touchdown_tilt_deg"), "[safety].max_touchdown_tilt_deg"
+            ),
+            "max_touchdown_angular_velocity_deg_s": require_number(
+                safety.get("max_touchdown_angular_velocity_deg_s"),
+                "[safety].max_touchdown_angular_velocity_deg_s",
+            ),
+            "target_radius_m": require_number(
+                safety.get("target_radius_m"), "[safety].target_radius_m"
+            ),
+        }
+        for name, value in values.items():
+            if value <= 0:
+                raise ConfigurationError(f"[safety].{name} must be positive")
+        return values
+
+    def _require_episode_config(self) -> None:
+        self._control_interval_s()
+        self._episode_horizon_s()
+        self._require_safety_config()
 
     def _require_observation_config(self) -> None:
         observation = self._observation_config()
@@ -254,7 +332,14 @@ class KSPEnv:
         if body is None:
             raise ConfigurationError(f"target body {body_name!r} is not present in this game")
         latitude, longitude, altitude = self._target_coordinates()
-        self._target_frame_cache = body.surface_reference_frame(latitude, longitude, altitude)
+        surface = body.surface_reference_frame(latitude, longitude, altitude)
+        # kRPC's surface frame is x=up, y=north, z=east.  Rotate it to a
+        # right-handed target-local frame with x=east, y=south, z=up so that
+        # the adapter uses the same +z-up convention as the simulator.
+        rotation = (math.sqrt(0.5), 0.0, math.sqrt(0.5), 0.0)
+        self._target_frame_cache = conn.space_center.ReferenceFrame.create_relative(
+            surface, rotation=rotation
+        )
         return self._target_frame_cache
 
     # ------------------------------------------------------------------
@@ -391,13 +476,220 @@ class KSPEnv:
         control.throttle = action.main_engine_throttle
         self._controls_dirty = True
 
-    def step(self, action: Action) -> StepResult:
-        """Apply an action and advance one kRPC physics tick.
+    def _contact_sample(self, observation: Observation, ut_s: float) -> dict[str, Any]:
+        """Read the contact-relevant telemetry for one observation."""
 
-        Episode termination and the fixed task control interval are not
-        implemented yet.  ``terminated``/``truncated`` are therefore false and
-        ``info`` marks ``episode_evaluated=False``; this is a transport-level
-        step, not a validated landing step.
+        vessel = self._require_flight()
+        frame = self._target_reference_frame()
+        flight = vessel.flight(frame)
+        position = observation.position_m
+        velocity = observation.velocity_m_s
+        return {
+            "ut_s": float(ut_s),
+            "situation": _enum_name(vessel.situation),
+            "surface_altitude_m": float(flight.surface_altitude),
+            "speed_m_s": math.sqrt(sum(value * value for value in velocity)),
+            "vertical_speed_m_s": float(velocity[2]),
+            "horizontal_speed_m_s": math.hypot(velocity[0], velocity[1]),
+            "tilt_deg": self._tilt_deg(observation.attitude_quaternion),
+            "angular_speed_rad_s": math.sqrt(
+                sum(value * value for value in observation.angular_velocity_rad_s)
+            ),
+            "horizontal_error_m": math.hypot(position[0], position[1]),
+            "main_engine_fuel": observation.main_engine_fuel,
+        }
+
+    @staticmethod
+    def _tilt_deg(quaternion: tuple[float, float, float, float]) -> float:
+        """Return the angle between body +z and target-frame +z in degrees."""
+
+        x, y, z, w = quaternion
+        norm = math.sqrt(x * x + y * y + z * z + w * w)
+        if norm == 0.0:
+            raise ValueError("attitude quaternion must not be zero")
+        x, y, z, w = x / norm, y / norm, z / norm, w / norm
+        body_z_in_frame = 1.0 - 2.0 * (x * x + y * y)
+        return math.degrees(math.acos(max(-1.0, min(1.0, body_z_in_frame))))
+
+    @staticmethod
+    def _safe_motion(sample: Mapping[str, Any], safety: Mapping[str, float]) -> bool:
+        return (
+            sample["speed_m_s"] <= safety["max_touchdown_speed_m_s"] + 1e-9
+            and sample["tilt_deg"] <= safety["max_touchdown_tilt_deg"] + 1e-9
+            and sample["angular_speed_rad_s"]
+            <= math.radians(safety["max_touchdown_angular_velocity_deg_s"]) + 1e-9
+        )
+
+    @staticmethod
+    def _touchdown_event(
+        previous: Mapping[str, Any] | None, current: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        impact = (
+            previous
+            if previous is not None
+            and previous["situation"] not in CONTACT_SITUATIONS
+            else current
+        )
+        return {
+            "ut_s": current["ut_s"],
+            "preimpact_ut_s": impact["ut_s"],
+            "contact_ut_s": current["ut_s"],
+            "speed_m_s": impact["speed_m_s"],
+            "vertical_speed_m_s": impact["vertical_speed_m_s"],
+            "horizontal_speed_m_s": impact["horizontal_speed_m_s"],
+            "tilt_deg": impact["tilt_deg"],
+            "angular_speed_rad_s": impact["angular_speed_rad_s"],
+            "horizontal_error_m": impact["horizontal_error_m"],
+            "surface_altitude_m": current["surface_altitude_m"],
+            "situation": current["situation"],
+            "contact_speed_m_s": current["speed_m_s"],
+            "contact_tilt_deg": current["tilt_deg"],
+            "contact_angular_speed_rad_s": current["angular_speed_rad_s"],
+        }
+
+    def _initialize_episode(
+        self,
+        ut_s: float,
+        sample: Mapping[str, Any],
+        observation: Observation,
+        safety: Mapping[str, float],
+    ) -> _EpisodeState:
+        contact = sample["situation"] in CONTACT_SITUATIONS
+        status = "flying"
+        done = False
+        if contact:
+            if self._safe_motion(sample, safety):
+                status = "stabilizing"
+            else:
+                status = "crash"
+                done = True
+        return _EpisodeState(
+            started_ut_s=float(ut_s),
+            contact=contact,
+            stable_time_s=0.0,
+            status=status,
+            previous_sample=dict(sample),
+            last_observation=observation,
+            done=done,
+        )
+
+    def _update_episode(
+        self,
+        episode: _EpisodeState,
+        sample: Mapping[str, Any],
+        observation: Observation,
+        dt_s: float,
+        safety: Mapping[str, float],
+        horizon_s: float,
+    ) -> None:
+        episode.elapsed_s += dt_s
+        contact_now = sample["situation"] in CONTACT_SITUATIONS
+
+        if not episode.done:
+            if episode.contact and not contact_now:
+                episode.contact = False
+                episode.stable_time_s = 0.0
+                episode.status = "flying"
+            elif not episode.contact and contact_now:
+                event = self._touchdown_event(episode.previous_sample, sample)
+                episode.touchdown_count += 1
+                episode.last_touchdown = event
+                if episode.touchdown is None:
+                    episode.touchdown = event
+                episode.contact = True
+                episode.stable_time_s = 0.0
+                if self._safe_motion(event, safety):
+                    episode.status = "stabilizing"
+                else:
+                    episode.status = "crash"
+                    episode.done = True
+            elif episode.contact and contact_now and episode.status == "stabilizing":
+                if not self._safe_motion(sample, safety):
+                    episode.status = "crash"
+                    episode.done = True
+                else:
+                    episode.stable_time_s += dt_s
+                    if episode.stable_time_s + 1e-9 >= safety["stable_window_s"]:
+                        episode.status = "safe_landing"
+                        episode.done = True
+
+            if not episode.done and not episode.contact:
+                if observation.main_engine_fuel <= 0.0:
+                    episode.status = "fuel_exhausted"
+                    episode.done = True
+                else:
+                    episode.status = "flying"
+
+            if not episode.done and episode.elapsed_s + 1e-9 >= horizon_s:
+                episode.status = "timeout"
+                episode.done = True
+
+        episode.previous_sample = dict(sample)
+        episode.last_observation = observation
+
+    def _episode_info(
+        self,
+        episode: _EpisodeState,
+        sample: Mapping[str, Any] | None,
+        ut_start: float | None,
+        ut_end: float | None,
+        physics_ticks: int,
+        control_interval_s: float,
+        control_hz: float,
+        safety: Mapping[str, float],
+        *,
+        vessel_destroyed: bool = False,
+        observation_stale: bool = False,
+    ) -> dict[str, Any]:
+        sample = sample if sample is not None else episode.previous_sample
+        info: dict[str, Any] = {
+            "control_hz": control_hz,
+            "control_interval_s": control_interval_s,
+            "ut_start_s": ut_start,
+            "ut_end_s": ut_end,
+            "ut_delta_s": None if ut_start is None or ut_end is None else ut_end - ut_start,
+            "dt_s": None if ut_start is None or ut_end is None else ut_end - ut_start,
+            "physics_ticks": physics_ticks,
+            "episode_evaluated": True,
+            "episode_started_ut_s": episode.started_ut_s,
+            "episode_time_s": episode.elapsed_s,
+            "status": episode.status,
+            "contact": episode.contact,
+            "stable_time_s": episode.stable_time_s,
+            "touchdown_count": episode.touchdown_count,
+            "vessel_destroyed": vessel_destroyed,
+            "observation_stale": observation_stale,
+            "reward_defined": False,
+        }
+        if sample is not None:
+            info.update(
+                {
+                    "situation": sample["situation"],
+                    "surface_altitude_m": sample["surface_altitude_m"],
+                    "horizontal_error_m": sample["horizontal_error_m"],
+                    "tilt_deg": sample["tilt_deg"],
+                    "angular_speed_rad_s": sample["angular_speed_rad_s"],
+                    "main_engine_fuel": sample["main_engine_fuel"],
+                }
+            )
+        if episode.touchdown is not None:
+            info["touchdown"] = dict(episode.touchdown)
+            info["landing_error_m"] = episode.touchdown["horizontal_error_m"]
+            info["safe_in_target"] = (
+                episode.status == "safe_landing"
+                and episode.touchdown["horizontal_error_m"] <= safety["target_radius_m"]
+            )
+        if episode.last_touchdown is not None:
+            info["last_touchdown"] = dict(episode.last_touchdown)
+        return info
+
+    def step(self, action: Action) -> StepResult:
+        """Apply an action and advance one fixed task control interval.
+
+        The interval is ``1 / [scenario].control_hz`` game seconds.  Contact
+        detection is provisional: it uses ``Vessel.situation`` and records
+        pre-impact and contact telemetry, but does not claim task-level
+        landing validation.
         """
 
         if not isinstance(action, Action):
@@ -405,19 +697,57 @@ class KSPEnv:
         conn = self._require_connection()
         self._require_action_config()
         self._require_observation_config()
+        self._require_episode_config()
         self._require_flight()
+        if self._episode is not None and self._episode.done:
+            raise EpisodeDoneError("episode is done; call reset() before another step")
+
+        control_interval_s = self._control_interval_s()
+        control_hz = 1.0 / control_interval_s
+        horizon_s = self._episode_horizon_s()
+        safety = self._require_safety_config()
 
         ut_start = None
         ut_end = None
         observation = None
+        sample = None
+        physics_ticks = 0
         release_error = None
+        destroyed = False
         try:
             conn.krpc.hold_tick()
             ut_start = float(conn.space_center.ut)
             self.apply_action(action)
-            conn.krpc.next_tick()
+            max_ticks = max(1, int(math.ceil(control_interval_s / 0.001)) + 10)
+            stalled = 0
+            while True:
+                now = float(conn.space_center.ut)
+                if now - ut_start + 1e-9 >= control_interval_s:
+                    break
+                before = now
+                conn.krpc.next_tick()
+                physics_ticks += 1
+                now = float(conn.space_center.ut)
+                if now <= before + 1e-9:
+                    stalled += 1
+                    if stalled >= 3:
+                        raise TickError("physics time did not advance while holding a tick")
+                else:
+                    stalled = 0
+                if physics_ticks > max_ticks:
+                    raise TickError(
+                        f"control interval {control_interval_s:.6f} s not reached "
+                        f"after {physics_ticks} physics ticks"
+                    )
             ut_end = float(conn.space_center.ut)
-            observation = self.observe()
+            try:
+                observation = self.observe()
+                sample = self._contact_sample(observation, ut_end)
+            except VesselError:
+                if self._scene() == "flight" and conn.space_center.active_vessel is None:
+                    destroyed = True
+                else:
+                    raise
         except KSPEnvError:
             raise
         except Exception as exc:
@@ -430,17 +760,65 @@ class KSPEnv:
 
         if release_error is not None:
             raise TickError(f"failed to release held tick: {release_error}") from release_error
-        if observation is None:
+
+        if destroyed:
+            episode = self._episode
+            if episode is None or episode.last_observation is None:
+                raise TickError("vessel disappeared before an observation was available")
+            episode.status = "crash"
+            episode.done = True
+            info = self._episode_info(
+                episode,
+                episode.previous_sample,
+                ut_start,
+                ut_end,
+                physics_ticks,
+                control_interval_s,
+                control_hz,
+                safety,
+                vessel_destroyed=True,
+                observation_stale=True,
+            )
+            return StepResult(
+                observation=episode.last_observation,
+                terminated=True,
+                truncated=False,
+                info=info,
+            )
+
+        if observation is None or sample is None or ut_start is None or ut_end is None:
             raise TickError("step completed without an observation")
 
-        info = {
-            "ut_start_s": ut_start,
-            "ut_end_s": ut_end,
-            "ut_delta_s": None if ut_start is None or ut_end is None else ut_end - ut_start,
-            "episode_evaluated": False,
-            "control_interval_s": "TBD",
-        }
-        return StepResult(observation=observation, info=info)
+        dt_s = ut_end - ut_start
+        if self._episode is None:
+            self._episode = self._initialize_episode(ut_start, sample, observation, safety)
+            self._update_episode(
+                self._episode, sample, observation, dt_s, safety, horizon_s
+            )
+        else:
+            self._update_episode(
+                self._episode, sample, observation, dt_s, safety, horizon_s
+            )
+
+        episode = self._episode
+        terminated = episode.status in {"safe_landing", "crash", "fuel_exhausted"}
+        truncated = episode.status == "timeout"
+        info = self._episode_info(
+            episode,
+            sample,
+            ut_start,
+            ut_end,
+            physics_ticks,
+            control_interval_s,
+            control_hz,
+            safety,
+        )
+        return StepResult(
+            observation=observation,
+            terminated=terminated,
+            truncated=truncated,
+            info=info,
+        )
 
     # ------------------------------------------------------------------
     # Reset
@@ -455,6 +833,8 @@ class KSPEnv:
 
         conn = self._require_connection()
         self._require_observation_config()
+        self._require_episode_config()
+        self._episode = None
 
         configured = self._scenario_config().get("save_name")
         name = save_name if save_name is not None else configured
@@ -487,6 +867,10 @@ class KSPEnv:
             vessel = self._active_vessel()
             observation = self.observe()
             ut_s = float(space_center.ut)
+            sample = self._contact_sample(observation, ut_s)
+            self._episode = self._initialize_episode(
+                ut_s, sample, observation, self._require_safety_config()
+            )
         except ResetError:
             raise
         except Exception as exc:

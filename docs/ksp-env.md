@@ -1,8 +1,9 @@
 # KSP environment adapter
 
-Status: importable adapter skeleton. Connection, config loading and read-only
-diagnostics are implemented. Task observation, reset and step are gated by
-values that remain `TBD` in [`task-spec.md`](task-spec.md) and
+Status: importable adapter with a fixed control interval and provisional contact
+detection. Connection, config loading, read-only diagnostics, observation,
+reset and stepping are implemented. Task-level target, save, frame and actuator
+calibration remain `TBD` in [`task-spec.md`](task-spec.md) and
 [`configs/mun_landing.toml`](../configs/mun_landing.toml). No Mun landing has
 been validated.
 
@@ -61,6 +62,10 @@ Both are explicitly marked `status = "adapter_test_only"` and keep
 `reset_step_validated` false. Do not report results from these profiles as Mun
 task results. The Mun test target is not a frozen final landing site.
 
+The adapter builds its test target frame from kRPC's surface frame with axes
+`x=east, y=south, z=up`. The task contract's target frame is still `TBD`; this
+test frame is a mechanical convention, not a frozen task decision.
+
 ```python
 env = KSPEnv.from_config("configs/ksp_mun_test.toml")
 ```
@@ -69,9 +74,11 @@ The profile save names are machine-local and are passed to kRPC's
 `SpaceCenter.load`, which expects the save file name inside the current save
 folder (for example `persistent` or `Mun landing 1`), not the folder name.
 Replace them or move them to a local manifest when using the profiles on another
-machine. Live `observe()`, `reset()` and one zero-action `step()` have been
-verified against both local profiles; these are mechanical checks only, not task
-validation.
+machine. Live `observe()`, `reset()` and a 10 Hz zero-action step have been
+verified on the Mun orbit profile; the earlier launchpad profile used a
+single-tick step. The new control interval is live-tested, but contact state is
+covered by offline tests only because the available Mun save is in orbit. These
+are mechanical checks only, not task validation.
 
 ## Control response probe
 
@@ -111,7 +118,7 @@ env.connect()
 try:
     state = env.read_diagnostic_state()   # raw, non-task telemetry
     # observation = env.observe()         # requires TBD target/frame decisions
-    # result = env.step(Action(...))      # requires TBD RCS semantics
+    # result = env.step(Action(...))      # requires target/frame and safety config
     # observation, info = env.reset(save_name="...")
 finally:
     env.close()
@@ -129,12 +136,30 @@ to run until all of the following are defined:
 - `[observation].main_engine_fuel_resource`
 
 `step(action)` additionally requires `[action].rcs_semantics =
-"normalized_input"`. It applies the action through `Vessel.control` with
-`input_mode = override`, SAS and reaction wheels disabled, then advances exactly
-one held physics tick and records the UT delta. Episode evaluation is **not**
-implemented, so `StepResult.info["episode_evaluated"]` is `False` and both
-`terminated` and `truncated` are false. This is a transport-level step, not a
-validated landing step.
+"normalized_input"`, `[scenario].control_hz`, `[scenario].episode_horizon_s`
+and the `[safety]` limits. It applies the action through `Vessel.control` with
+`input_mode = override`, SAS and reaction wheels disabled, then holds the action
+for `1 / control_hz` game seconds. `info` records the configured interval, the
+actual `ut_delta_s`/`dt_s`, and the number of physics ticks. A step that
+overshoots the interval is recorded with its actual duration; no tolerance is
+invented.
+
+The adapter also keeps provisional episode state:
+
+- Contact is detected from `Vessel.situation` (`landed` or `splashed`).
+- The first contact records a `touchdown` event using the last airborne sample
+  for impact speed, tilt and angular speed, plus the contact sample.
+- Continuous contact accumulates `stable_time_s`; loss of contact resets it.
+- `safe_landing` requires the frozen touchdown limits and the 5 s stable window.
+- `crash`, `safe_landing` and `fuel_exhausted` set `terminated`; `timeout` sets
+  `truncated`.
+- `reward` remains `None`. This is provisional mechanical evaluation, not
+  task-level landing validation.
+
+If the active vessel disappears after a step, the adapter returns the last valid
+observation with `vessel_destroyed=True`, `observation_stale=True` and a `crash`
+outcome. Calling `step()` after a terminal or truncated episode raises
+`EpisodeDoneError`; call `reset()` first.
 
 `reset(save_name=...)` loads a named save, waits for `game_state_loads` to
 advance, requires the Flight scene, and returns `(Observation, ResetInfo)`.
@@ -149,6 +174,7 @@ No save name has been chosen yet, so it must be supplied explicitly.
 | `VesselError` | No active vessel, or wrong scene |
 | `ResetError` | Named save could not be loaded/verified |
 | `TickError` | Held tick or step timing failed |
+| `EpisodeDoneError` | `step()` called after a terminal or truncated episode |
 | `InfrastructureError` | Base class for the four infrastructure failures above |
 
 Infrastructure failures must never be converted into a successful or failed
@@ -189,7 +215,7 @@ KSP_LIVE=1 .venv/bin/python -m unittest discover -s tests -p 'test_ksp_env_live.
 ```
 
 Live adapter mechanics, including named-save reset and one zero-action
-physics step:
+control interval:
 
 ```sh
 KSP_LIVE_RESET_STEP=1 .venv/bin/python -m unittest discover -s tests -p 'test_ksp_env_live.py' -v
