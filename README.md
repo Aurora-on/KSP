@@ -23,7 +23,7 @@ World Models for Lunar Landing in Kerbal Space Program
 - 2×2 预训练/想象实验协议、RQ1–RQ3 评估口径、OOD 与数据预算规范。
 - GitHub Actions 在 Python 3.12 和 3.14 上检查语法、离线诊断和模拟器，并用固定版本的 CPU PyTorch 验证智能体安装与测试。
 
-2026-11-06 已在本机验证发射台 RPC、连续遥测和可恢复灯光控制；2026-11-17 记录 final proposal 的任务定性决策与实验协议。模拟器的独立验收见 [模拟器验证说明](simulator/docs/VALIDATION.md)，既有 KSP 证据见 [验证记录](docs/validation.md)。**Mun 初始下降场景、KSP 可重复 reset/step、实船安全阈值、两端接口校准、KSP 适配与 RQ1–RQ3 实验仍待完成。** 模拟器的 pilot 数值没有填入共享任务配置中的 TBD；动作顺序、轴映射和精度指标差异见 [仓库接入说明](simulator/docs/REPOSITORY_INTEGRATION.md)。
+2026-11-06 已在本机验证发射台 RPC、连续遥测和可恢复灯光控制；2026-11-17 记录 final proposal 的任务定性决策与实验协议。模拟器的独立验收见 [模拟器验证说明](simulator/docs/VALIDATION.md)，既有 KSP 证据见 [验证记录](docs/validation.md)。**Mun 动力下降场景、任务级 reset/step、有实测依据的接触与安全判定、两端接口校准及 KSP 适配仍待完成。** 团队已冻结初态分布、10 Hz 控制、90 s 时限、触地上限和 5 m 靶区。[任务数值决议](docs/nominal-task-decisions.md)；动作顺序、轴映射和精度指标差异见 [仓库接入说明](simulator/docs/REPOSITORY_INTEGRATION.md)。
 
 ## 快速开始
 
@@ -81,7 +81,7 @@ uv pip install --python .venv/bin/python \
 
 ```text
 agent/         模拟器回放、确定性世界模型、RSSM 对照与开环诊断
-configs/       Mun 任务契约（数值 TBD）与 adapter 测试配置（非任务）
+configs/       Mun 任务契约（任务数值已冻结，飞船与场地待测）与 adapter 测试配置（非任务）
 docs/          proposal 对照、任务契约、实验协议、环境要求、验证记录与开发顺序
 ksp_env/       可导入的 KSP 环境接口（连接、观测、动作、reset/step 骨架）
 requirements/  直接依赖、开发依赖、本机完整版本快照

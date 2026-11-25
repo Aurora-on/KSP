@@ -1,6 +1,6 @@
 # Mun landing task contract
 
-Status: the qualitative task is adopted from `KSP_World_Model_Proposal_final.pptx` (reviewed 2026-11-17). Numeric values marked **TBD** are deliberately unset. This document is not a runnable environment and does not claim that any landing has been validated.
+The team adopted the qualitative Mun task on 2026-11-17 and froze its nominal initial-state distribution, timing, observation fields and safety limits on 2026-11-25. Craft, site and KSP landing acceptance are pending. [Decision record](nominal-task-decisions.md)
 
 The KSP adapter and the fast pretraining simulator MUST expose the same observation, action, timing and episode semantics. `configs/mun_landing.toml` mirrors the machine-readable subset of this contract; when the two disagree, this document and the config MUST be reconciled before an experiment is run.
 
@@ -10,8 +10,8 @@ The KSP adapter and the fast pretraining simulator MUST expose the same observat
 - Target site: flat surface. Coordinates and local frame are **TBD**.
 - Lander: one fixed nominal craft. Mass, inertia tensor, engine and RCS properties are **TBD**.
 - Gravity: fixed nominal Mun gravity. OOD gravity is an evaluation condition, not the nominal task.
-- Initialization: randomize initial position, velocity and attitude for every training and evaluation method. Ranges and distributions are **TBD**.
-- Descent altitude, target point, episode horizon and control rate are **TBD**.
+- Initialization: randomize initial position, velocity and attitude for every training and evaluation method. Use the S3 distribution for target-relative position, velocity, attitude and body angular velocity. Its support and sampling law are recorded in the [decision table](nominal-task-decisions.md).
+- Sample initial clearance uniformly from 80 to 120 m, hold commands at 10 Hz of game time, and end the episode at 90 s. The target point and named descent save still require KSP measurements.
 
 The nominal task is fixed, but the agent must still see randomized initial states. "Fixed craft" does not mean fixed initial state.
 
@@ -27,7 +27,7 @@ The policy consumes numeric telemetry, not images:
 | Angular velocity | Body angular velocity | Frame and units TBD |
 | Main-engine fuel | Remaining main-engine propellant | Unit and normalization TBD |
 
-All values use SI units unless degrees are explicitly named. Frame transformations MUST be explicit and shared by both environments. Whether vehicle mass and inertia are observed, or only used to condition OOD evaluation, is **TBD**; RQ3 requires the decision to be recorded before training.
+All values use SI units unless degrees are explicitly named. Frame transformations MUST be explicit and shared by both environments. Mass and inertia are diagnostic telemetry, excluded from policy and world-model input.
 
 Implementation note: the adapter reads a named main-engine propellant resource; the resource name, unit and normalization remain **TBD** until the lander is fixed. kRPC returns attitude quaternions as `(x, y, z, w)` and angular velocity in rad/s; adopting that order and frame must be recorded with the convention decision.
 
@@ -37,7 +37,7 @@ Do not hide an autopilot or attitude controller inside the environment. If one i
 
 - RCS pitch, yaw and roll commands.
 - Main-engine throttle in `[0, 1]`.
-- RCS semantics (torque command versus normalized input), action scaling and control interval are **TBD** and MUST match between the KSP adapter and the simulator.
+- RCS semantics and action scaling still require calibration. The nominal control interval is 0.1 s of game time.
 - The action is held for one fixed control interval. Wall-clock timing is not a substitute for simulation-time stepping.
 - An inner-loop autopilot is disabled by default; any exception MUST be recorded in the experiment configuration.
 
@@ -60,7 +60,7 @@ A safe landing requires all of the following:
 - Stable observation for 5 s after touchdown.
 - The vessel survives and the relevant parts remain intact.
 
-The numeric speed, tilt, angular-velocity and target-radius limits are **TBD** and MUST be frozen before comparison runs.
+The limits are 2.0 m/s for total touchdown speed, 10° for tilt, 0.2 rad/s for the angular-speed norm and 5.0 m for the target radius. The shared angular-speed threshold is stored in degrees/s. KSP contact detection and damage checks still require validation.
 
 Metric definitions:
 
@@ -90,10 +90,9 @@ Imagined transitions are never counted as KSP data. RQ2 variants use the same re
 The following MUST remain marked `TBD` until a decision is recorded:
 
 - Lander model and its mass/inertia/engine/RCS parameters.
-- Target coordinates, local frame and target radius.
-- Descent altitude and initial position/velocity/attitude distributions.
-- Control rate, episode horizon and touchdown-detection tolerance.
-- Maximum touchdown speed, tilt and angular velocity.
+- Target coordinates, local frame, site elevation and clearance reference.
+- Named descent save, reset construction and achievable readback tolerances.
+- Touchdown-detection tolerance and the mapping from KSP contact signals to an uninterrupted stable interval.
 - KSP interaction budget and per-group simulator budget.
 - OOD perturbation ranges.
 - Observation normalization and action scaling.
