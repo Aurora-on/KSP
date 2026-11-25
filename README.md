@@ -16,10 +16,10 @@ World Models for Lunar Landing in Kerbal Space Program
 - 智能体支持模拟器演示采集、回合回放、确定性残差模型拟合、事件与回报诊断、垂直及完整六自由度策略的采集与想象训练、固定清单评估、多种子报告及 RSSM 对照。[安装与使用说明](agent/README.md)
 - [六自由度着陆模拟器](simulator/README.md)：变质量动力学、RCS 姿态控制、Gymnasium 接口、脚本控制器、可复现初态与参数扫描；仓库版稳定窗口为 5 s。
 - KSP 1.12.5 + kRPC 0.7.0 的只读诊断、遥测记录及显式灯光控制测试。
-- `ksp_env/` 可导入适配器骨架：连接、配置、诊断状态读取；任务观测、reset/step 仍受 TBD 决策阻塞，详见 [KSP 环境接口](docs/ksp-env.md)。
+- `ksp_env/` 支持单帧诊断和按游戏时间保持动作的 10 Hz 控制。正式下降任务仍需标定飞船和场地，并在游戏中验收。[KSP 步进接口与示例](docs/ksp-env.md#stepping-by-game-time)
 - Python 3.12–3.14 环境配置，固定版本的 NumPy、SciPy、Gymnasium、PyTorch、Matplotlib。
 - 完全离线的依赖、CPU/MPS 运算和本地插件文件检查。
-- Mun 任务定性契约：固定 nominal 着陆器、重力和平坦站点，随机初始位置/速度/姿态，RCS + 主发动机控制，5 s 稳定性窗口；数值阈值保持空缺。
+- Mun 下降任务已确定初态分布、10 Hz 控制、90 s 时限、触地阈值、5 s 稳定窗口和 5 m 靶区。[正式配置](configs/mun_landing.toml)
 - 2×2 预训练/想象实验协议、RQ1–RQ3 评估口径、OOD 与数据预算规范。
 - GitHub Actions 在 Python 3.12 和 3.14 上检查语法、离线诊断和模拟器，并用固定版本的 CPU PyTorch 验证智能体安装与测试。
 

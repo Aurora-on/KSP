@@ -16,7 +16,7 @@
 | 坐标 | 目标局部右手系、世界 `+z` 向上、机体 `+z` 推力；`wxyz` 表示 body→world | 不直接使用未验证的 kRPC 轴序、手性或符号；需实船测量变换 |
 | 动作 | `[throttle, rcs_x, rcs_y, rcs_z]`，油门优先 | 共享配置为 `[rcs_pitch, rcs_yaw, rcs_roll, main_engine_throttle]`；需明确数组重排和实际轴映射 |
 | RCS | 三轴机体系等效力矩比例 `[-1,1]` | 共享配置的 torque/normalized input 语义及增益仍为 TBD |
-| 控制周期 | 默认 0.1 s，物理子步 0.02 s | 共享任务已定 10 Hz；适配器仍需按游戏时间推进并记录实际 dt |
+| 控制周期 | 默认 0.1 s，物理子步 0.02 s | 任务适配器按游戏 UT 保持动作并记录实际 dt，10 Hz 步进仍待 KSP 实测。[步进接口](../../docs/ksp-env.md#stepping-by-game-time) |
 | 角速度 | 观测 rad/s，pilot 安全阈值 0.2 rad/s | 共享阈值约 11.4592 deg/s（0.2 rad/s）；对接时须换算单位 |
 | 安全窗口 | 5 s | 已与共享任务一致 |
 | 质量/惯量观测 | 未放入策略观测；质量只在 info 中用于诊断 | 共享任务已确定质量、惯量仅作诊断 |

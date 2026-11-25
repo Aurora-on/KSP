@@ -45,7 +45,7 @@ Do not hide an autopilot or attitude controller inside the environment. If one i
 
 - Reset uses a named save/snapshot, checks `can_save` and `game_state_loads`, reacquires state and verifies post-reset tolerances.
 - The exact save name, snapshot hash and tolerance are **TBD**.
-- Stepping uses kRPC 0.7 `hold_tick`, `next_tick` and `release_tick` where suitable, with the tick released in `finally`.
+- Stepping uses kRPC 0.7 `hold_tick`, `next_tick` and `release_tick`. For consecutive task transitions, read the first observation and issue actions inside a control session. The adapter holds the physics tick across policy decisions and releases it on session exit. Standalone steps release their own hold. [Adapter API](ksp-env.md#stepping-by-game-time)
 - Record the actual universal-time delta for every step and compare it with the intended action interval.
 - Do not wait for streams while holding a tick. Use measured timing to detect hold timeouts.
 - Return Gymnasium-style `terminated` for task outcomes and `truncated` for time limits. Connection, reset and tick failures are infrastructure errors, not successful or failed landings.
