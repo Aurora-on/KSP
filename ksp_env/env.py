@@ -8,7 +8,10 @@ sequencing and infrastructure error classification.
 
 from __future__ import annotations
 
+import math
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
@@ -52,7 +55,11 @@ class KSPEnv:
         self.config = config
         self._conn: Any | None = connection
         self._target_frame_cache: Any | None = None
-        self._controls_dirty = False
+        self._controlled_vessel: Any | None = None
+        self._tick_held = False
+        self._session_active = False
+        self._session_ut: float | None = None
+        self._session_vessel: Any | None = None
 
     @classmethod
     def from_config(cls, path: str | None = None) -> "KSPEnv":
@@ -126,13 +133,8 @@ class KSPEnv:
         if conn is None:
             return
         try:
-            conn.krpc.release_tick()
-        except Exception:
-            pass
-        try:
-            if self._controls_dirty:
-                self._neutralize_controls(conn)
-        except Exception:
+            self._end_control(conn)
+        except TickError:
             pass
         try:
             conn.close()
@@ -141,6 +143,8 @@ class KSPEnv:
         finally:
             self._conn = None
             self._target_frame_cache = None
+            self._tick_held = False
+            self._controlled_vessel = None
 
     def __enter__(self) -> "KSPEnv":
         return self.connect()
@@ -344,9 +348,20 @@ class KSPEnv:
         method raises ``ConfigurationError`` until those decisions are made.
         """
 
-        self._require_connection()
+        conn = self._require_connection()
         self._require_observation_config()
-        vessel = self._require_flight()
+        if self._session_active:
+            try:
+                self._check_session_boundary(conn)
+                observation = self._observe_vessel(self._session_vessel)
+                self._check_session_boundary(conn)
+                return observation
+            except BaseException as exc:
+                self._end_control(conn, exc)
+                raise
+        return self._observe_vessel(self._require_flight())
+
+    def _observe_vessel(self, vessel: Any) -> Observation:
         frame = self._target_reference_frame()
         fuel_resource = self._observation_config()["main_engine_fuel_resource"]
 
@@ -372,12 +387,17 @@ class KSPEnv:
         """Send one validated action through kRPC's ``Control`` interface."""
 
         self._require_action_config()
-        vessel = self._require_flight()
+        self._write_action(self._require_flight(), action)
+
+    def _write_action(self, vessel: Any, action: Action) -> None:
         control = vessel.control
 
         # Imported lazily so offline tests do not need the kRPC stubs.
         from krpc.services.spacecenter import ControlInputMode
 
+        # Retain this exact vessel even if a later setter fails or the active
+        # vessel changes. Cleanup must never send controls to its replacement.
+        self._controlled_vessel = vessel
         control.input_mode = ControlInputMode.override
         control.sas = False
         control.reaction_wheels = False
@@ -389,57 +409,218 @@ class KSPEnv:
         control.yaw = action.rcs_yaw
         control.roll = action.rcs_roll
         control.throttle = action.main_engine_throttle
-        self._controls_dirty = True
+
+    @staticmethod
+    def _read_ut(conn: Any) -> float:
+        ut = float(conn.space_center.ut)
+        if not math.isfinite(ut):
+            raise TickError("game UT is not finite")
+        return ut
+
+    def _hold_tick(self, conn: Any) -> float:
+        # A timed-out hold RPC may still have acquired the server's tick.
+        self._tick_held = True
+        conn.krpc.hold_tick()
+        return self._read_ut(conn)
+
+    def _release_tick(self, conn: Any) -> None:
+        self._session_ut = None
+        if self._tick_held:
+            try:
+                conn.krpc.release_tick()
+            except Exception as exc:
+                raise TickError(f"failed to release held tick: {exc}") from exc
+            self._tick_held = False
+
+    def _end_control(self, conn: Any, error: BaseException | None = None) -> None:
+        failures = []
+        if self._controlled_vessel is not None:
+            try:
+                self._neutralize_controls(self._controlled_vessel)
+                self._controlled_vessel = None
+            except Exception as exc:
+                failures.append(f"could not neutralize commanded vessel: {exc}")
+        try:
+            self._release_tick(conn)
+        except TickError as exc:
+            failures.append(str(exc))
+        if failures:
+            detail = ". ".join(failures)
+            if error is None:
+                raise TickError(detail)
+            error.add_note(detail)
+
+    def _check_session_boundary(self, conn: Any) -> float:
+        if self._session_ut is None or self._read_ut(conn) != self._session_ut:
+            raise TickError("control session lost its held tick; game UT changed or session ended")
+        if self._require_flight() != self._session_vessel:
+            raise VesselError("active vessel changed during the control session")
+        return self._session_ut
+
+    @contextmanager
+    def control_session(self) -> Iterator[KSPEnv]:
+        """Hold consecutive decision boundaries through observation and policy work.
+
+        Enter after reset. The server may expire its hold during inference;
+        the next read or step rejects a changed UT before using stale data.
+        """
+        if self._session_active:
+            raise TickError("a control session is already active")
+        conn = self._require_connection()
+        self._session_active = True
+        error = None
+        try:
+            try:
+                self._session_ut = self._hold_tick(conn)
+                self._session_vessel = self._require_flight()
+                self._check_session_boundary(conn)
+            except KSPEnvError:
+                raise
+            except Exception as exc:
+                raise TickError(f"could not start control session: {exc}") from exc
+            yield self
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            self._session_active = False
+            self._session_vessel = None
+            if self._tick_held:
+                self._end_control(conn, error)
 
     def step(self, action: Action) -> StepResult:
-        """Apply an action and advance one kRPC physics tick.
+        """Hold the action for the powered-descent interval, or one test tick."""
+        return self._step(action, grouped=self.config.raw.get("task") == "powered_descent")
 
-        Episode termination and the fixed task control interval are not
-        implemented yet.  ``terminated``/``truncated`` are therefore false and
-        ``info`` marks ``episode_evaluated=False``; this is a transport-level
-        step, not a validated landing step.
-        """
+    def step_tick(self, action: Action) -> StepResult:
+        """Advance a single measured physics tick for adapter diagnostics."""
+        return self._step(action, grouped=False)
 
-        if not isinstance(action, Action):
-            raise TypeError("step() expects an Action instance")
+    def _tick_sample(self, conn: Any, vessel: Any, ut: float) -> dict[str, Any]:
+        parts = vessel.parts
+        legs = parts.legs
+        frame = self._target_reference_frame()
+        flight = vessel.flight(frame)
+        velocity = tuple(float(value) for value in vessel.velocity(frame))
+        angular_velocity = tuple(
+            float(value) for value in vessel.angular_velocity(frame)
+        )
+        sample = {
+            "ut_s": ut,
+            "situation": _enum_name(vessel.situation),
+            "part_count": len(parts.all),
+            "leg_count": len(legs),
+            "grounded_legs": sum(leg.is_grounded for leg in legs),
+            "broken_legs": sum(_enum_name(leg.state) == "broken" for leg in legs),
+            "surface_altitude_m": float(flight.surface_altitude),
+            "velocity_m_s": velocity,
+            "attitude_quaternion": tuple(
+                float(value) for value in vessel.rotation(frame)
+            ),
+            "angular_velocity_rad_s": angular_velocity,
+            "speed_m_s": math.sqrt(sum(value * value for value in velocity)),
+            "angular_speed_rad_s": math.sqrt(
+                sum(value * value for value in angular_velocity)
+            ),
+        }
+        if self._read_ut(conn) != ut:
+            raise TickError("tick hold expired during raw telemetry")
+        return sample
+
+    def _step(self, action: Action, *, grouped: bool) -> StepResult:
         conn = self._require_connection()
-        self._require_action_config()
-        self._require_observation_config()
-        self._require_flight()
-
-        ut_start = None
-        ut_end = None
-        observation = None
-        release_error = None
         try:
-            conn.krpc.hold_tick()
-            ut_start = float(conn.space_center.ut)
-            self.apply_action(action)
-            conn.krpc.next_tick()
-            ut_end = float(conn.space_center.ut)
-            observation = self.observe()
+            if not isinstance(action, Action):
+                raise TypeError("step expects an Action instance")
+            self._require_action_config()
+            self._require_observation_config()
+            interval = None
+            if grouped:
+                frequency = require_number(self._scenario_config().get("control_hz"), "[scenario].control_hz")
+                if frequency <= 0 or not math.isfinite(1.0 / frequency):
+                    raise ConfigurationError("[scenario].control_hz must define a positive finite interval")
+                interval = 1.0 / frequency
+            result = self._advance(conn, action, interval)
+            if self._session_active:
+                self._session_ut = result.info["ut_end_s"]
+            else:
+                self._release_tick(conn)
+            return result
+        except BaseException as exc:
+            if self._tick_held:
+                self._end_control(conn, exc)
+            raise
+
+    def _advance(self, conn: Any, action: Action, interval: float | None) -> StepResult:
+        timeout = require_number(self.config.timeout_s, "timeout_s")
+        if timeout <= 0:
+            raise ConfigurationError("timeout_s must be positive")
+        deadline = time.monotonic() + timeout
+        samples = []
+        try:
+            if self._session_active:
+                start = self._check_session_boundary(conn)
+                vessel = self._session_vessel
+            else:
+                start = self._hold_tick(conn)
+                vessel = self._require_flight()
+            if interval is not None:
+                samples.append(self._tick_sample(conn, vessel, start))
+            if time.monotonic() >= deadline:
+                raise TickError("step exceeded its wall-clock timeout")
+            if self._read_ut(conn) != start:
+                raise TickError("tick hold expired before applying action")
+            self._write_action(vessel, action)
+            ut = start
+            ticks = 0
+            while True:
+                if time.monotonic() >= deadline:
+                    raise TickError("step exceeded its wall-clock timeout")
+                if self._read_ut(conn) != ut:
+                    raise TickError("tick hold expired while applying controls or sampling telemetry")
+                conn.krpc.next_tick()
+                next_ut = self._read_ut(conn)
+                tick_dt = next_ut - ut
+                if tick_dt <= 0 or not math.isfinite(tick_dt):
+                    raise TickError(f"physics tick did not advance game UT by a finite duration: {tick_dt:g} s")
+                if self._require_flight() != vessel:
+                    raise VesselError("active vessel changed during a step")
+                ticks += 1
+                ut = next_ut
+                if interval is None:
+                    break
+                samples.append(self._tick_sample(conn, vessel, ut))
+                # UT is double but KSP's fixed timestep comes from Unity's
+                # float. Allow cumulative rounding without taking a sixth tick.
+                tolerance = min(tick_dt / 4, ticks * math.ulp(ut) + interval * 2**-24)
+                if ut - start >= interval - tolerance:
+                    break
+
+            observation = self._observe_vessel(vessel)
+            if self._read_ut(conn) != ut:
+                raise TickError("tick hold expired during final observation")
+            if time.monotonic() >= deadline:
+                raise TickError("step exceeded its wall-clock timeout")
+        except InfrastructureError as exc:
+            exc.tick_samples = tuple(samples)
+            raise
         except KSPEnvError:
             raise
         except Exception as exc:
-            raise TickError(str(exc)) from exc
-        finally:
-            try:
-                conn.krpc.release_tick()
-            except Exception as exc:  # pragma: no cover - server-dependent
-                release_error = exc
-
-        if release_error is not None:
-            raise TickError(f"failed to release held tick: {release_error}") from release_error
-        if observation is None:
-            raise TickError("step completed without an observation")
+            error = TickError(str(exc))
+            error.tick_samples = tuple(samples)
+            raise error from exc
 
         info = {
-            "ut_start_s": ut_start,
-            "ut_end_s": ut_end,
-            "ut_delta_s": None if ut_start is None or ut_end is None else ut_end - ut_start,
+            "ut_start_s": start,
+            "ut_end_s": ut,
+            "ut_delta_s": ut - start,
+            "physics_ticks": ticks,
+            "control_interval_s": interval,
             "episode_evaluated": False,
-            "control_interval_s": "TBD",
         }
+        if interval is not None:
+            info["tick_samples"] = samples
         return StepResult(observation=observation, info=info)
 
     # ------------------------------------------------------------------
@@ -453,6 +634,8 @@ class KSPEnv:
         pass it explicitly until a team decision records it.
         """
 
+        if self._session_active:
+            raise ResetError("exit the control session before loading a save")
         conn = self._require_connection()
         self._require_observation_config()
 
@@ -470,8 +653,8 @@ class KSPEnv:
                 conn.krpc.release_tick()
             except Exception:
                 pass
-            if not space_center.can_save:
-                raise ResetError("SpaceCenter.can_save is false; the game cannot be saved")
+            # can_save describes saving, not loading.  kRPC's load path does
+            # not require it and low-altitude saves are loadable.
             space_center.load(name)
             deadline = started + timeout_s
             while int(conn.krpc.game_state_loads) <= loads_before:
@@ -482,9 +665,9 @@ class KSPEnv:
             scene = self._scene()
             if scene != "flight":
                 raise ResetError(f"save {name!r} loaded scene {scene!r}, expected Flight")
-            self._neutralize_controls(conn)
-            self._controls_dirty = False
             vessel = self._active_vessel()
+            self._neutralize_controls(vessel)
+            self._controlled_vessel = None
             observation = self.observe()
             ut_s = float(space_center.ut)
         except ResetError:
@@ -506,10 +689,7 @@ class KSPEnv:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _neutralize_controls(conn: Any) -> None:
-        vessel = conn.space_center.active_vessel
-        if vessel is None:
-            return
+    def _neutralize_controls(vessel: Any) -> None:
         control = vessel.control
         control.throttle = 0.0
         control.pitch = 0.0

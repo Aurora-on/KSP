@@ -31,8 +31,11 @@ class ConfigurationError(KSPEnvError):
 class InfrastructureError(KSPEnvError):
     """The connection, reset or physics-tick transport failed.
 
-    These must not be converted into a successful or failed landing.
+    These must not be converted into a successful or failed landing. A failed
+    grouped step retains the raw samples verified before the failure.
     """
+
+    tick_samples: tuple[Mapping[str, Any], ...] = ()
 
 
 class KSPConnectionError(InfrastructureError):

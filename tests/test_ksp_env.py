@@ -6,9 +6,13 @@ No game, kRPC server, NumPy or Gymnasium is required.
 import dataclasses
 import importlib.util
 import math
+import sys
 import tempfile
 import unittest
+from ctypes import c_float
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from ksp_env import (
     Action,
@@ -194,10 +198,6 @@ class AdapterTests(unittest.TestCase):
             config.address = "0.0.0.0"  # type: ignore[misc]
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class _EnumValue:
     def __init__(self, name):
         self.name = name
@@ -215,7 +215,15 @@ class _FakeControl:
         self.pitch = 0.0
         self.yaw = 0.0
         self.roll = 0.0
-        self.throttle = 0.0
+        self.throttle_writes = [0.0]
+
+    @property
+    def throttle(self):
+        return self.throttle_writes[-1]
+
+    @throttle.setter
+    def throttle(self, value):
+        self.throttle_writes.append(value)
 
 
 class _FakeResources:
@@ -236,19 +244,23 @@ class _FakeBody:
 class _FakeVessel:
     def __init__(self):
         self.name = "FakeVessel"
+        self.situation = _EnumValue("flying")
+        leg = SimpleNamespace(is_grounded=False, state=_EnumValue("deployed"))
+        self.parts = SimpleNamespace(all=[1, 2, 3], legs=[leg])
         self.control = _FakeControl()
         self.resources = _FakeResources()
         self.position = lambda frame: (0.0, 0.0, 1.0)
         self.velocity = lambda frame: (0.0, 0.0, -1.0)
         self.rotation = lambda frame: (0.0, 0.0, 0.0, 1.0)
         self.angular_velocity = lambda frame: (0.0, 0.0, 0.0)
+        self.flight = lambda frame: SimpleNamespace(surface_altitude=1.0)
 
 
 class _FakeSpaceCenter:
     def __init__(self):
         self._ut = 100.0
         self.active_vessel = _FakeVessel()
-        self.bodies = {"Kerbin": _FakeBody()}
+        self.bodies = {"Kerbin": _FakeBody(), "Mun": _FakeBody()}
         self.can_save = True
 
     @property
@@ -263,13 +275,20 @@ class _FakeKRPC:
         self.paused = False
         self.game_state_loads = 1
         self.calls = []
+        self.tick_durations = None
+        self.after_tick = None
+        self.completed_ticks = 0
 
     def hold_tick(self):
         self.calls.append("hold")
 
     def next_tick(self):
         self.calls.append("next")
-        self.space_center._ut += 0.02
+        duration = 0.02 if self.tick_durations is None else next(self.tick_durations)
+        self.space_center._ut += duration
+        self.completed_ticks += 1
+        if self.after_tick is not None:
+            self.after_tick(self.completed_ticks)
 
     def release_tick(self):
         self.calls.append("release")
@@ -285,29 +304,26 @@ class _FakeConnection:
         self.closed = True
 
 
-@unittest.skipUnless(importlib.util.find_spec("krpc") is not None, "krpc package not installed")
 class StepSequencingTests(unittest.TestCase):
-    def make_env(self):
-        raw = {
-            "target_body": "Kerbin",
-            "scenario": {"target_position": [0.0, 0.0, 0.0], "save_name": "TBD"},
-            "observation": {
-                "frame": "target_surface",
-                "main_engine_fuel_resource": "LiquidFuel",
-            },
-            "action": {"rcs_semantics": "normalized_input", "autopilot_inner_loop": False},
-        }
-        config = EnvConfig(
-            address="127.0.0.1",
-            rpc_port=50000,
-            stream_port=50001,
-            client_version="0.7.0",
-            server_version="0.7.0",
-            game_version="1.12.5",
-            raw=raw,
-        )
+    def setUp(self):
+        if importlib.util.find_spec("krpc") is None:
+            # The only client type used by these in-process controls is this enum.
+            module = SimpleNamespace(ControlInputMode=SimpleNamespace(override=1))
+            self.enterContext(patch.dict(sys.modules, {"krpc.services.spacecenter": module}))
+
+    def make_env(self, *, nominal=False):
+        if nominal:
+            config = load_config()
+            # Fake craft and site stand in for the outstanding live decisions.
+            config.raw["scenario"]["target_position"] = [0.0, 0.0, 0.0]
+            config.raw["observation"].update(frame="target_surface", main_engine_fuel_resource="LiquidFuel")
+            config.raw["action"]["rcs_semantics"] = "normalized_input"
+        else:
+            config = load_config(CONFIG_PATH)
         connection = _FakeConnection()
-        return KSPEnv(config, connection=connection), connection
+        env = KSPEnv(config, connection=connection)
+        self.addCleanup(env.close)
+        return env, connection
 
     def test_step_holds_advances_and_releases(self):
         env, connection = self.make_env()
@@ -321,6 +337,183 @@ class StepSequencingTests(unittest.TestCase):
         self.assertEqual(connection.space_center.active_vessel.control.throttle, 0.0)
         self.assertFalse(connection.space_center.active_vessel.control.rcs)
         self.assertTrue(connection.closed)
+
+    def test_nominal_hold_samples_contact_and_part_loss_before_final_observation(self):
+        env, connection = self.make_env(nominal=True)
+        vessel = connection.space_center.active_vessel
+        rpc = connection.krpc
+
+        def simulate_contact(tick):
+            if tick == 1:
+                vessel.parts.legs[0].is_grounded = True
+            elif tick == 2:
+                vessel.parts.legs[0].state = _EnumValue("broken")
+                vessel.situation = _EnumValue("landed")
+            elif tick == 3:
+                vessel.parts.legs[0].is_grounded = False
+                vessel.parts.all.pop()
+                vessel.situation = _EnumValue("flying")
+
+        rpc.after_tick = simulate_contact
+        action = Action(rcs_pitch=0.15, main_engine_throttle=0.3)
+        result = env.step(action)
+        self.assertEqual(vessel.control.throttle_writes.count(0.3), 1)
+        self.assertEqual(rpc.calls, ["hold"] + ["next"] * 5 + ["release"])
+        self.assertEqual(result.info["physics_ticks"], 5)
+        self.assertAlmostEqual(result.info["control_interval_s"], 0.1)
+        self.assertAlmostEqual(result.info["ut_delta_s"], 0.1)
+        samples = result.info["tick_samples"]
+        self.assertEqual(
+            [s["situation"] for s in samples],
+            ["flying", "flying", "landed", "flying", "flying", "flying"],
+        )
+        self.assertEqual([s["leg_count"] for s in samples], [1] * 6)
+        self.assertEqual([s["grounded_legs"] for s in samples], [0, 1, 1, 0, 0, 0])
+        self.assertEqual([s["broken_legs"] for s in samples], [0, 0, 1, 1, 1, 1])
+        self.assertEqual([s["part_count"] for s in samples], [3, 3, 3, 2, 2, 2])
+        for i, sample in enumerate(samples):
+            self.assertAlmostEqual(sample["ut_s"], result.info["ut_start_s"] + i * 0.02)
+            self.assertEqual(sample["surface_altitude_m"], 1.0)
+            self.assertEqual(sample["velocity_m_s"], (0.0, 0.0, -1.0))
+            self.assertEqual(sample["attitude_quaternion"], (0.0, 0.0, 0.0, 1.0))
+            self.assertEqual(sample["angular_velocity_rad_s"], (0.0, 0.0, 0.0))
+            self.assertAlmostEqual(sample["speed_m_s"], 1.0)
+            self.assertAlmostEqual(sample["angular_speed_rad_s"], 0.0)
+        self.assertEqual(result.info["ut_end_s"], samples[-1]["ut_s"])
+        self.assertIsNone(result.reward)
+        self.assertFalse(result.terminated)
+        self.assertFalse(result.truncated)
+        self.assertFalse(result.info["episode_evaluated"])
+
+    def test_variable_tick_lengths_use_actual_elapsed_ut(self):
+        env, connection = self.make_env(nominal=True)
+        durations = (0.018, 0.024, 0.040, 0.026)
+        connection.krpc.tick_durations = iter(durations)
+        info = env.step(Action()).info
+        self.assertEqual(info["physics_ticks"], len(durations))
+        self.assertAlmostEqual(info["ut_delta_s"], sum(durations))
+        self.assertEqual(info["ut_delta_s"], info["ut_end_s"] - info["ut_start_s"])
+
+    def test_task_control_rate_comes_from_configuration(self):
+        env, connection = self.make_env(nominal=True)
+        env.config.raw["scenario"]["control_hz"] = 25
+        self.assertEqual(env.step(Action()).info["physics_ticks"], 2)
+        self.assertEqual(connection.krpc.calls, ["hold", "next", "next", "release"])
+
+    def test_float_physics_tick_roundoff_does_not_add_a_sixth_tick(self):
+        env, connection = self.make_env(nominal=True)
+        connection.space_center._ut = 367.78
+        connection.krpc.tick_durations = iter([c_float(0.02).value] * 5)
+        self.assertEqual(env.step(Action()).info["physics_ticks"], 5)
+
+    def test_explicit_step_tick_on_nominal_task_advances_only_one_tick(self):
+        env, connection = self.make_env(nominal=True)
+        info = env.step_tick(Action()).info
+        self.assertEqual(connection.krpc.calls, ["hold", "next", "release"])
+        self.assertAlmostEqual(info["ut_delta_s"], 0.02)
+        self.assertEqual(info["physics_ticks"], 1)
+
+    def test_non_advancing_reversed_and_nonfinite_ticks_fail_and_release(self):
+        for bad_duration in (0.0, -0.02, math.nan):
+            with self.subTest(bad_duration=bad_duration):
+                env, connection = self.make_env(nominal=True)
+                connection.krpc.tick_durations = iter([0.02, bad_duration])
+                with self.assertRaises(TickError):
+                    env.step(Action(main_engine_throttle=0.5))
+                self.assertEqual(connection.krpc.calls, ["hold", "next", "next", "release"])
+                self.assertEqual(connection.space_center.active_vessel.control.throttle, 0.0)
+
+    def test_hold_expiring_during_observation_fails_without_returning_mixed_state(self):
+        env, connection = self.make_env(nominal=True)
+        vessel = connection.space_center.active_vessel
+
+        def read_after_lost_hold(frame):
+            connection.space_center._ut += 0.02
+            return (0.0, 0.0, 1.0)
+
+        vessel.position = read_after_lost_hold
+        with self.assertRaises(TickError):
+            env.step(Action(main_engine_throttle=0.5))
+        self.assertEqual(connection.krpc.calls, ["hold"] + ["next"] * 5 + ["release"])
+        self.assertEqual(vessel.control.throttle, 0.0)
+
+    def test_slow_transport_times_out_despite_advancing_ut(self):
+        env, connection = self.make_env(nominal=True)
+        with patch("ksp_env.env.time.monotonic", return_value=0.0) as clock:
+            def exceed_timeout(tick):
+                clock.return_value = env.config.timeout_s + 1.0
+
+            connection.krpc.after_tick = exceed_timeout
+            with self.assertRaises(TickError):
+                env.step(Action(main_engine_throttle=0.5))
+        self.assertEqual(connection.krpc.calls, ["hold", "next", "release"])
+        self.assertEqual(connection.space_center.active_vessel.control.throttle, 0.0)
+
+    def test_vessel_loss_or_switch_aborts_without_commanding_replacement(self):
+        for replacement in (None, _FakeVessel()):
+            with self.subTest(replacement=replacement):
+                env, connection = self.make_env(nominal=True)
+                old = connection.space_center.active_vessel
+                if replacement is not None:
+                    replacement.control.throttle = 0.23
+
+                def change_vessel(tick):
+                    connection.space_center.active_vessel = replacement
+
+                connection.krpc.after_tick = change_vessel
+                with self.assertRaises(VesselError) as failed:
+                    env.step(Action(main_engine_throttle=0.5))
+                samples = failed.exception.tick_samples
+                self.assertEqual([sample["ut_s"] for sample in samples], [100.0])
+                self.assertEqual(samples[0]["situation"], "flying")
+                self.assertEqual(connection.krpc.calls, ["hold", "next", "release"])
+                self.assertEqual(old.control.throttle, 0.0)
+                if replacement is not None:
+                    self.assertEqual(replacement.control.throttle, 0.23)
+
+    def test_control_session_keeps_shared_boundary_between_policy_actions(self):
+        env, connection = self.make_env(nominal=True)
+        throttle_by_tick = []
+        control = connection.space_center.active_vessel.control
+        connection.krpc.after_tick = lambda tick: throttle_by_tick.append(control.throttle)
+        with env.control_session():
+            # An accidental nested session must leave the original hold intact.
+            with self.assertRaises(TickError):
+                with env.control_session():
+                    self.fail("nested control session reopened a held physics tick")
+            first = env.step(Action(main_engine_throttle=0.25))
+            second = env.step(Action(main_engine_throttle=0.75))
+            self.assertEqual(connection.krpc.calls, ["hold"] + ["next"] * 10)
+        self.assertEqual(connection.krpc.calls[-1], "release")
+        self.assertEqual(throttle_by_tick, [0.25] * 5 + [0.75] * 5)
+        self.assertEqual(first.info["ut_end_s"], second.info["ut_start_s"])
+        self.assertAlmostEqual(second.info["ut_end_s"] - first.info["ut_start_s"], 0.2)
+
+    def test_control_session_releases_after_client_exception_and_can_be_reused(self):
+        env, connection = self.make_env(nominal=True)
+        with self.assertRaisesRegex(ValueError, "invalid policy output"):
+            with env.control_session():
+                env.step(Action(main_engine_throttle=0.7))
+                raise ValueError("invalid policy output")
+        session_calls = ["hold"] + ["next"] * 5 + ["release"]
+        self.assertEqual(connection.krpc.calls, session_calls)
+        self.assertEqual(connection.space_center.active_vessel.control.throttle, 0.0)
+        with env.control_session():
+            self.assertEqual(env.step(Action()).info["physics_ticks"], 5)
+        self.assertEqual(connection.krpc.calls, session_calls * 2)
+
+    def test_control_session_detects_unrequested_ut_advance_before_applying_action(self):
+        env, connection = self.make_env(nominal=True)
+        with env.control_session():
+            env.step(Action())
+            connection.space_center._ut += 0.02
+            with self.assertRaises(TickError):
+                env.step(Action(main_engine_throttle=0.8))
+            self.assertNotIn(0.8, connection.space_center.active_vessel.control.throttle_writes)
+            self.assertEqual(connection.krpc.calls[-1], "release")
+            with self.assertRaises(TickError):
+                env.step(Action())
+        self.assertEqual(connection.krpc.calls, ["hold"] + ["next"] * 5 + ["release"])
 
     def test_step_releases_tick_when_observation_fails(self):
         env, connection = self.make_env()
@@ -348,3 +541,23 @@ class StepSequencingTests(unittest.TestCase):
         self.assertEqual(info.game_state_loads, 2)
         self.assertEqual(observation.main_engine_fuel, 12.0)
         env.close()
+
+    def test_reset_loads_even_when_can_save_is_false(self):
+        env, connection = self.make_env()
+        connection.space_center.can_save = False
+
+        def load(name):
+            self.assertEqual(name, "low-save")
+            connection.krpc.game_state_loads = 2
+
+        connection.space_center.load = load
+        observation, info = env.reset(save_name="low-save")
+        self.assertEqual(info.save_name, "low-save")
+        self.assertEqual(info.game_state_loads, 2)
+        self.assertEqual(observation.main_engine_fuel, 12.0)
+        self.assertFalse(connection.space_center.active_vessel.control.rcs)
+        env.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

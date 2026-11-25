@@ -128,17 +128,79 @@ to run until all of the following are defined:
 - `[scenario].target_position` (latitude, longitude, altitude)
 - `[observation].main_engine_fuel_resource`
 
-`step(action)` additionally requires `[action].rcs_semantics =
-"normalized_input"`. It applies the action through `Vessel.control` with
-`input_mode = override`, SAS and reaction wheels disabled, then advances exactly
-one held physics tick and records the UT delta. Episode evaluation is **not**
-implemented, so `StepResult.info["episode_evaluated"]` is `False` and both
-`terminated` and `truncated` are false. This is a transport-level step, not a
-validated landing step.
+### Stepping by game time
+
+With `task = "powered_descent"`, `step(action)` applies the command once and
+advances physics ticks until elapsed universal time (UT) reaches
+`1 / scenario.control_hz`. The nominal task requests 0.1 s. At 0.02 s per
+tick this takes five ticks. If the target falls between tick boundaries, the
+step ends on the first boundary that reaches it. Use the measured UT
+difference as the transition duration.
+
+For a single-tick probe, call `step_tick(action)`. The two bundled
+`adapter_test_only` profiles also retain single-tick behavior through
+`step(action)`. Both entry points require a configured target frame, a main
+engine fuel resource and `[action].rcs_semantics = "normalized_input"`.
+They apply the action through `Vessel.control` with `input_mode = override`,
+SAS and reaction wheels disabled.
+
+Each successful hold supplies timing data in `StepResult.info`.
+
+| Field | Meaning |
+| --- | --- |
+| `ut_start_s`, `ut_end_s`, `ut_delta_s` | Start and end game time in seconds and their measured difference. |
+| `physics_ticks`, `control_interval_s` | Count of completed `next_tick()` calls and the requested task interval in seconds. Single-tick probes have `control_interval_s=None`. |
+| `tick_samples` | In a task step, a sample at the start and after each tick. Each carries `ut_s`, vessel `situation`, `part_count`, the counts `leg_count`, `grounded_legs`, `broken_legs`, `surface_altitude_m`, `velocity_m_s`, `attitude_quaternion`, `angular_velocity_rad_s`, `speed_m_s` and `angular_speed_rad_s`. Position-dependent vectors and quaternions use the configured target frame. |
+
+Leg contact, leg damage and changes in part count provide raw evidence for
+calibrating touchdown and integrity checks. Altitude, velocity and attitude
+samples preserve the motion at each physics tick so a later contact evaluator
+can recover the pre-impact speed and orientation even when touchdown occurs
+inside a control interval. The action hold continues while
+the vessel remains available. On a timing or vessel failure during the hold,
+`InfrastructureError.tick_samples` retains the samples already verified at a
+single UT. UT must stay fixed while a tick is held and advance on each
+`next_tick()`. A long UT increment during that call can reflect a long physics
+tick, missed ticks or warp. The adapter checks its wall-clock deadline between
+RPCs. A blocked socket read in the kRPC 0.7 client can outlast that deadline.
+
+For consecutive policy decisions, enter a control session on the configured
+and connected task environment after reset. Read the first observation inside
+the session.
+The physics tick stays held between decisions so the next action starts at the
+previous action's end UT.
+
+```python
+with env.control_session():
+    observation = env.observe()
+    for _ in range(number_of_decisions):
+        action = policy(observation)  # returns an Action in the adapter's order
+        result = env.step(action)
+        observation = result.observation
+```
+
+Keep policy calls shorter than the kRPC server's hold timeout. If physics
+advances while the adapter expects the boundary to be held, the next step
+raises `TickError`. On exit the session attempts to neutralize the commanded
+vessel before releasing the hold. A successful standalone `step` leaves its
+action applied and releases the tick at the end of the interval. Game time can
+then advance before the next call. Record that gap separately when inspecting
+standalone traces.
+
+The returned `StepResult` has `reward=None`, `terminated=False`,
+`truncated=False` and `info["episode_evaluated"]=False`. Task rewards, the
+episode horizon and the landing evaluator still need implementation. The live
+checks recorded above cover the single-tick profiles. The 10 Hz task interval
+still needs a game run with the selected descent save.
+
+### Reset
 
 `reset(save_name=...)` loads a named save, waits for `game_state_loads` to
 advance, requires the Flight scene, and returns `(Observation, ResetInfo)`.
 No save name has been chosen yet, so it must be supplied explicitly.
+Loading does not depend on `SpaceCenter.can_save`; that flag only describes
+whether the current game state can be saved. Low-altitude saves remain
+loadable even when `can_save` is false.
 
 ## Error taxonomy
 
