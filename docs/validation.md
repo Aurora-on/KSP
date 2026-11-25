@@ -30,6 +30,17 @@ confirming that the load path does not depend on the save restriction. This is a
 synthetic debug snapshot, not a task-grade initial state or landing result. The
 three readiness flags remain `false`.
 
+A second snapshot was kept as `Mun landing-debug-10m`. Its saved state was
+10.05 m above the target, `(0, 0, -1.31)` m/s, task-frame tilt 0.0014° and
+`can_save=False`; the file SHA-256 is
+`7ab85fa78f2cf1a246c0439e5b71db4f3aac2cfbb070639da422b48a48d78530`.
+With zero throttle, the adapter detected contact after 20 control steps at a
+pre-impact speed of 5.153 m/s and tilt 0.0068°, classified it as `crash` and set
+`terminated=True`. A simple hover-throttle descent reduced vertical speed to
+about 0.45 m/s but was still airborne at 5.4 m after 60 steps, with tilt drifting
+to about 8° because no attitude controller was active. The snapshot was restored
+and the game left paused; no safe landing or task-level validation is claimed.
+
 ## 2026-11-25 — KSP adapter control interval and contact mechanics
 
 The adapter now advances one configured control interval per `step()` and keeps
