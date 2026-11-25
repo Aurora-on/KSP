@@ -47,6 +47,10 @@ class TaskConfigTests(unittest.TestCase):
                           safety["target_radius_m"]), (2., 10., 5.))
         self.assertAlmostEqual(math.radians(safety["max_touchdown_angular_velocity_deg_s"]), 0.2)
         observation = self.config["observation"]
+        self.assertEqual(
+            observation["main_engine_fuel_resources"],
+            ["LiquidFuel", "Oxidizer"],
+        )
         self.assertEqual(set(observation["diagnostic_only_fields"]), {"mass", "inertia_tensor"})
         self.assertTrue(set(observation["fields"]).isdisjoint(observation["diagnostic_only_fields"]))
 
@@ -55,7 +59,6 @@ class TaskConfigTests(unittest.TestCase):
         self.assertEqual(self.config["scenario"]["target_position"], "TBD")
         self.assertEqual(self.config["evaluation"]["ood_ranges"], "TBD")
         self.assertEqual(self.config["observation"]["normalization"], "TBD")
-        self.assertEqual(self.config["observation"]["main_engine_fuel_resource"], "TBD")
         self.assertEqual(self.config["observation"]["body_to_task_rotation_xyzw"], "TBD")
 
     def test_step_api_is_gymnasium_compatible_core(self):

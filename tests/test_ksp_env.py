@@ -64,7 +64,10 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(config.raw["target_body"], "Mun")
         self.assertEqual(config.raw["scenario"]["save_name"], "Mun landing 1")
         self.assertEqual(config.raw["scenario"]["target_position"], [0.0, 139.70616, 0.0])
-        self.assertEqual(config.raw["observation"]["main_engine_fuel_resource"], "LiquidFuel")
+        self.assertEqual(
+            config.raw["observation"]["main_engine_fuel_resources"],
+            ["LiquidFuel", "Oxidizer"],
+        )
         self.assertEqual(
             config.raw["observation"]["body_to_task_rotation_xyzw"],
             [0.7071067811865476, 0.0, 0.0, 0.7071067811865476],
@@ -245,13 +248,25 @@ class _FakeControl:
 
 
 class _FakeResources:
+    def __init__(self):
+        self.all = [
+            SimpleNamespace(
+                name="LiquidFuel", amount=12.0, max=12.0, density=5.0
+            ),
+            SimpleNamespace(
+                name="Oxidizer", amount=4.0, max=4.0, density=5.0
+            ),
+        ]
+
     def has_resource(self, name):
-        return name == "LiquidFuel"
+        return name in {"LiquidFuel", "Oxidizer"}
 
     def amount(self, name):
-        if name != "LiquidFuel":
-            raise KeyError(name)
-        return 12.0
+        if name == "LiquidFuel":
+            return 12.0
+        if name == "Oxidizer":
+            return 4.0
+        raise KeyError(name)
 
 
 class _FakeBody:
@@ -406,7 +421,7 @@ class StepSequencingTests(unittest.TestCase):
             )
             config.raw["observation"].update(
                 frame="target_surface",
-                main_engine_fuel_resource="LiquidFuel",
+                main_engine_fuel_resources=["LiquidFuel"],
                 body_to_task_rotation_xyzw=[0.0, 0.0, 0.0, 1.0],
             )
             config.raw["action"].update(
@@ -797,6 +812,16 @@ class StepSequencingTests(unittest.TestCase):
             self.assertEqual(connection.debug.calls, [])
         env.close()
 
+    def test_observation_sums_configured_propellant_mass(self):
+        env, connection = self.make_env()
+        env.config.raw["observation"]["main_engine_fuel_resources"] = [
+            "LiquidFuel",
+            "Oxidizer",
+        ]
+        observation = env.observe()
+        self.assertEqual(observation.main_engine_fuel, 80.0)
+        env.close()
+
     def test_reset_loads_named_save_and_observes(self):
         env, connection = self.make_env()
         connection.space_center.can_save = False
@@ -810,7 +835,7 @@ class StepSequencingTests(unittest.TestCase):
         self.assertEqual(info.save_name, "test-save")
         self.assertEqual(info.scene, "flight")
         self.assertEqual(info.game_state_loads, 2)
-        self.assertEqual(observation.main_engine_fuel, 12.0)
+        self.assertEqual(observation.main_engine_fuel, 60.0)
         env.close()
 
     def test_reset_loads_even_when_can_save_is_false(self):
@@ -825,7 +850,7 @@ class StepSequencingTests(unittest.TestCase):
         observation, info = env.reset(save_name="low-save")
         self.assertEqual(info.save_name, "low-save")
         self.assertEqual(info.game_state_loads, 2)
-        self.assertEqual(observation.main_engine_fuel, 12.0)
+        self.assertEqual(observation.main_engine_fuel, 60.0)
         self.assertFalse(connection.space_center.active_vessel.control.rcs)
         env.close()
 

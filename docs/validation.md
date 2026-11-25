@@ -45,7 +45,7 @@ and the game left paused; no safe landing or task-level validation is claimed.
 
 The existing `两级着陆器` and the equatorial point at latitude 0° and longitude
 139.70616° were measured as the candidate craft and site. The pass was
-read-only: no controls, saves or config `TBD` values were changed.
+read-only: it sent no controls and did not save or load the game.
 
 The active craft reported 11,460 kg wet mass, 6,060 kg dry mass and 5,400 kg
 of resources. Its four active `liquidEngine3.v2` engines consume LiquidFuel and
@@ -55,17 +55,19 @@ LiquidFuel/Oxidizer was 450/550 units, or 2,250/2,750 kg; Monopropellant was 40
 units (160 kg) and SolidFuel 32 units (240 kg). Principal moments were
 18,760.8, 20,964.0 and 18,052.6 kg·m².
 
-A 5 m terrain grid around the target gave a fitted slope of 0.0703°, terrain
-height at the target of 10.530 m and an RMS residual of 0.191 m. The
+A 5 m terrain grid around the target gave a fitted slope of 0.0700°, terrain
+height at the target of 10.574 m and an RMS residual of 0.191 m. The
 target-center ray hit the lander cabin, so that sample was excluded from the
-fit. The vessel's reported surface altitude was 9.952 m. The configured target
+fit. The vessel's reported surface altitude was 9.997 m. The configured target
 altitude is still 0 m, and the clearance reference remains `TBD`.
 
-The configured `main_engine_fuel_resource` is `LiquidFuel`, but the active
-engines consume LiquidFuel and Oxidizer. The fuel observation and target
-clearance reference therefore remain open decisions. This is candidate
-measurement evidence, not a frozen task scene; the three readiness flags remain
-`false`.
+Following the measurement, the team decided that `main_engine_fuel` is the
+total mass of the configured main-engine propellants in kg. For this craft the
+configured LiquidFuel and Oxidizer correspond to 5,000 kg. The adapter now sums
+amount × density; a live read-only `observe()` of the loaded candidate returned
+`main_engine_fuel=5000.0` kg. The opt-in live reset/step test also passed with
+the new field. Normalization and the target clearance reference remain `TBD`. This is candidate measurement
+evidence, not a frozen task scene; the three readiness flags remain `false`.
 
 ## 2026-11-25 — Integrated contact and snapshot check
 
@@ -90,7 +92,7 @@ provisional contact/stability state. Offline tests use a fake kRPC transport:
 the 10 Hz case advances five 0.02 s ticks, records `dt_s = 0.1`, detects the
 first `landed` transition, takes impact metrics from the preceding airborne
 sample, completes a stable window, and classifies unsafe contact, liftoff,
-timeout and vessel loss. The kRPC-enabled `.venv` root suite ran 53 cases with
+timeout and vessel loss. The kRPC-enabled `.venv` root suite ran 57 cases with
 two opt-in live checks skipped; an interpreter without kRPC also skips the
 thirteen step/snapshot cases. The simulator suite passed 61 with one skip and
 the agent suite passed 97 with one skip.
@@ -102,7 +104,7 @@ returned the `两级着陆器` in Flight, and one zero-action step advanced UT f
 measured `dt_s` was `0.09999999999990905` s for the configured 0.1 s interval.
 The vessel remained `orbiting`, `contact=False`, `status="flying"`,
 `surface_altitude_m=12633.5`, `tilt_deg=82.739`, `angular_speed_rad_s=0.0000849`
-and `main_engine_fuel=450.0`; no staging was used and `close()` neutralized the
+and `main_engine_fuel=450.0` under the previous resource-unit field (the current field reports kg); no staging was used and `close()` neutralized the
 controls. This is live control-interval evidence only. Live touchdown detection
 is still pending because the available Mun save is an orbit at about 12.6 km,
 not a descent snapshot. The earlier 2026-11-18 live evidence covers the previous

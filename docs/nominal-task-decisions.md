@@ -8,9 +8,17 @@ The project lead selected the existing `两级着陆器` and the equatorial poin
 latitude 0° and longitude 139.70616° as the candidate craft and landing site for
 task integration. A first read-only measurement recorded 11,460 kg wet mass,
 6,060 kg dry mass, four active 60 kN engines and a 5 m-grid terrain slope of
-0.0703°. These are candidate measurements, not frozen task values: the target
-altitude/clearance reference, fuel observation, actuator calibration and named
-descent save remain open.
+0.0700°. These are candidate measurements, not frozen task values: the target
+altitude/clearance reference, actuator calibration and named descent save
+remain open.
+
+## Main-engine fuel observation (2026-11-26)
+
+The project lead decided that `main_engine_fuel` is the total mass of the
+configured main-engine propellant resources in kg, not the amount of one raw
+resource. For the candidate craft the resources are LiquidFuel and Oxidizer:
+450 and 550 units, or 5,000 kg combined. The adapter sums amount × density for
+`[observation].main_engine_fuel_resources`. Normalization remains `TBD`.
 
 ## Approved task values
 
@@ -22,9 +30,9 @@ descent save remain open.
 | Control interval and horizon | Hold each action for 0.1 s of game time (10 Hz). Time out at 90 s. Record the actual UT interval on every transition. |
 | Touchdown and stability | Total speed ≤2.0 m/s, tilt ≤10°, angular-speed norm ≤0.2 rad/s (11.4591559026°/s). Require 5 consecutive seconds of stable contact and an intact vessel. |
 | Precision | Target radius 5.0 m. Report precision across all attempts and safe-in-target separately. |
-| Observation | Retain position, velocity, orientation, body angular velocity and main-engine propellant. Record mass and inertia for diagnostics only. Source checkpoint preprocessing is recorded in the handoff. |
+| Observation | Retain position, velocity, orientation, body angular velocity and main-engine propellant mass in kg. Record mass and inertia for diagnostics only. Source checkpoint preprocessing is recorded in the handoff. |
 
-The source reset sampler starts with a full main tank. The KSP integration group must supply the applicable propellant resource, units and usable mass for the selected configuration. The KSP contact signal, terrain reference and repeatable reset still need live acceptance before any readiness flag changes. The exact source sampling code and the nominal pilot configuration are available for comparison. [Reset sampler](../simulator/src/mun_lander/state.py) · [Pilot configuration](../simulator/configs/nominal.json)
+The source reset sampler starts with a full main tank. The candidate KSP craft uses LiquidFuel and Oxidizer; the final craft and normalization remain open. The KSP contact signal, terrain reference and repeatable reset still need live acceptance before any readiness flag changes. The exact source sampling code and the nominal pilot configuration are available for comparison. [Reset sampler](../simulator/src/mun_lander/state.py) · [Pilot configuration](../simulator/configs/nominal.json)
 
 ## Decision deferred until KSP measurements
 

@@ -25,11 +25,11 @@ The policy consumes numeric telemetry, not images:
 | Velocity | Velocity relative to the target/rotating body, in the same frame | Frame and convention TBD |
 | Attitude | Attitude quaternion, with a stated body-to-world order and normalization | Convention TBD |
 | Angular velocity | Body angular velocity | Frame and units TBD |
-| Main-engine fuel | Remaining main-engine propellant | Unit and normalization TBD |
+| Main-engine fuel | Remaining main-engine propellant mass, summed over the configured main-engine resources | kg; normalization TBD |
 
 All values use SI units unless degrees are explicitly named. Frame transformations MUST be explicit and shared by both environments. Mass and inertia are diagnostic telemetry, excluded from policy and world-model input.
 
-Implementation note: the adapter reads a named main-engine propellant resource; the resource name, unit and normalization remain **TBD** until the lander is fixed. kRPC returns attitude quaternions as `(x, y, z, w)` and angular velocity in rad/s; adopting that order and frame must be recorded with the convention decision.
+Implementation note: the adapter reads the configured `main_engine_fuel_resources`, converts each resource amount to mass with its kRPC density, and reports the total in kg. The candidate craft uses LiquidFuel and Oxidizer; normalization remains **TBD**. kRPC returns attitude quaternions as `(x, y, z, w)` and angular velocity in rad/s; adopting that order and frame must be recorded with the convention decision.
 
 Do not hide an autopilot or attitude controller inside the environment. If one is used, it changes the task dynamics and MUST be documented as part of the action interface.
 

@@ -304,12 +304,19 @@ def build_report(
     action = config.get("action", {})
     scenario = config.get("scenario", {})
     resource_mass_kg = sum(row["mass_kg"] for row in resources)
-    configured_fuel = observation.get("main_engine_fuel_resource")
+    configured_fuel_resources = observation.get("main_engine_fuel_resources")
+    if not isinstance(configured_fuel_resources, (list, tuple)):
+        configured_fuel_resources = []
     active_propellants = engines["active_propellants"]
     active_propellant_mass_kg = sum(
         row["mass_kg"]
         for row in resources
         if row["name"] in active_propellants
+    )
+    configured_fuel_mass_kg = sum(
+        row["mass_kg"]
+        for row in resources
+        if row["name"] in configured_fuel_resources
     )
     warnings = []
 
@@ -318,11 +325,13 @@ def build_report(
             "The source profile is not the final nominal task; measurements do "
             "not change configs/mun_landing.toml or readiness flags."
         )
-    if len(active_propellants) > 1 and configured_fuel in active_propellants:
+    missing_fuel_resources = sorted(
+        set(active_propellants) - set(configured_fuel_resources)
+    )
+    if missing_fuel_resources:
         warnings.append(
-            "Active engines consume more than one propellant but the configured "
-            "main_engine_fuel_resource names only one; decide whether the "
-            "observation should use total propellant mass in kg."
+            "The configured main_engine_fuel_resources do not cover active "
+            f"engine propellants: {missing_fuel_resources}."
         )
     if terrain["fit"] is None:
         warnings.append(
@@ -377,6 +386,7 @@ def build_report(
             "resource_mass_kg": resource_mass_kg,
             "mass_minus_dry_kg": float(vessel.mass) - float(vessel.dry_mass),
             "active_propellant_mass_kg": active_propellant_mass_kg,
+            "configured_main_engine_fuel_mass_kg": configured_fuel_mass_kg,
             "moment_of_inertia_kg_m2": _vector(vessel.moment_of_inertia),
             "inertia_tensor_kg_m2": _vector(vessel.inertia_tensor),
             "resources": resources,
@@ -399,7 +409,7 @@ def build_report(
             "save_name": scenario.get("save_name"),
             "observation_fields": observation.get("fields"),
             "observation_frame": observation.get("frame"),
-            "main_engine_fuel_resource": configured_fuel,
+            "main_engine_fuel_resources": configured_fuel_resources,
             "body_to_task_rotation_xyzw": observation.get(
                 "body_to_task_rotation_xyzw"
             ),
@@ -470,7 +480,8 @@ def main() -> int:
             f"active engines: {engines['active_count']}, "
             f"max thrust {engines['active_max_thrust_n']:.1f} N, "
             f"propellants {engines['active_propellants']}, "
-            f"propellant mass {vessel['active_propellant_mass_kg']:.3f} kg"
+            f"propellant mass {vessel['active_propellant_mass_kg']:.3f} kg "
+            f"(configured observation {vessel['configured_main_engine_fuel_mass_kg']:.3f} kg)"
         )
         for name in ("LiquidFuel", "Oxidizer", "MonoPropellant", "SolidFuel"):
             if name in resources:
