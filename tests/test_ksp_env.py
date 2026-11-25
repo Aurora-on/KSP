@@ -253,6 +253,7 @@ class _FakeVessel:
         self.velocity = lambda frame: (0.0, 0.0, -1.0)
         self.rotation = lambda frame: (0.0, 0.0, 0.0, 1.0)
         self.angular_velocity = lambda frame: (0.0, 0.0, 0.0)
+        self.flight = lambda frame: SimpleNamespace(surface_altitude=1.0)
 
 
 class _FakeSpaceCenter:
@@ -372,6 +373,12 @@ class StepSequencingTests(unittest.TestCase):
         self.assertEqual([s["part_count"] for s in samples], [3, 3, 3, 2, 2, 2])
         for i, sample in enumerate(samples):
             self.assertAlmostEqual(sample["ut_s"], result.info["ut_start_s"] + i * 0.02)
+            self.assertEqual(sample["surface_altitude_m"], 1.0)
+            self.assertEqual(sample["velocity_m_s"], (0.0, 0.0, -1.0))
+            self.assertEqual(sample["attitude_quaternion"], (0.0, 0.0, 0.0, 1.0))
+            self.assertEqual(sample["angular_velocity_rad_s"], (0.0, 0.0, 0.0))
+            self.assertAlmostEqual(sample["speed_m_s"], 1.0)
+            self.assertAlmostEqual(sample["angular_speed_rad_s"], 0.0)
         self.assertEqual(result.info["ut_end_s"], samples[-1]["ut_s"])
         self.assertIsNone(result.reward)
         self.assertFalse(result.terminated)

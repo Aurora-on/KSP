@@ -150,10 +150,13 @@ Each successful hold supplies timing data in `StepResult.info`.
 | --- | --- |
 | `ut_start_s`, `ut_end_s`, `ut_delta_s` | Start and end game time in seconds and their measured difference. |
 | `physics_ticks`, `control_interval_s` | Count of completed `next_tick()` calls and the requested task interval in seconds. Single-tick probes have `control_interval_s=None`. |
-| `tick_samples` | In a task step, a sample at the start and after each tick. Each carries `ut_s`, vessel `situation`, `part_count` and the counts `leg_count`, `grounded_legs`, `broken_legs`. |
+| `tick_samples` | In a task step, a sample at the start and after each tick. Each carries `ut_s`, vessel `situation`, `part_count`, the counts `leg_count`, `grounded_legs`, `broken_legs`, `surface_altitude_m`, `velocity_m_s`, `attitude_quaternion`, `angular_velocity_rad_s`, `speed_m_s` and `angular_speed_rad_s`. Position-dependent vectors and quaternions use the configured target frame. |
 
 Leg contact, leg damage and changes in part count provide raw evidence for
-calibrating touchdown and integrity checks. The action hold continues while
+calibrating touchdown and integrity checks. Altitude, velocity and attitude
+samples preserve the motion at each physics tick so a later contact evaluator
+can recover the pre-impact speed and orientation even when touchdown occurs
+inside a control interval. The action hold continues while
 the vessel remains available. On a timing or vessel failure during the hold,
 `InfrastructureError.tick_samples` retains the samples already verified at a
 single UT. UT must stay fixed while a tick is held and advance on each

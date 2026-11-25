@@ -499,6 +499,12 @@ class KSPEnv:
     def _tick_sample(self, conn: Any, vessel: Any, ut: float) -> dict[str, Any]:
         parts = vessel.parts
         legs = parts.legs
+        frame = self._target_reference_frame()
+        flight = vessel.flight(frame)
+        velocity = tuple(float(value) for value in vessel.velocity(frame))
+        angular_velocity = tuple(
+            float(value) for value in vessel.angular_velocity(frame)
+        )
         sample = {
             "ut_s": ut,
             "situation": _enum_name(vessel.situation),
@@ -506,6 +512,16 @@ class KSPEnv:
             "leg_count": len(legs),
             "grounded_legs": sum(leg.is_grounded for leg in legs),
             "broken_legs": sum(_enum_name(leg.state) == "broken" for leg in legs),
+            "surface_altitude_m": float(flight.surface_altitude),
+            "velocity_m_s": velocity,
+            "attitude_quaternion": tuple(
+                float(value) for value in vessel.rotation(frame)
+            ),
+            "angular_velocity_rad_s": angular_velocity,
+            "speed_m_s": math.sqrt(sum(value * value for value in velocity)),
+            "angular_speed_rad_s": math.sqrt(
+                sum(value * value for value in angular_velocity)
+            ),
         }
         if self._read_ut(conn) != ut:
             raise TickError("tick hold expired during raw telemetry")
