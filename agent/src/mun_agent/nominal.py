@@ -10,6 +10,20 @@ from mun_lander.evaluation import SPLIT_IDS, evaluate, generate_initial_states, 
 from .policy_rollouts import collect_from_manifest, compare_returns, policy_trajectories, write_manifest_once
 
 
+LEGACY_SELECTION_ORDER = ("safe_landing_rate", "mean_return", "iteration")
+SELECTION_ORDER = ("safe_landing_rate", "safe_in_target_rate", "mean_return", "iteration")
+
+
+def validation_rank(row, order=SELECTION_ORDER):
+    """Compare raw simulator metrics recorded on the fixed validation starts."""
+    if tuple(order) not in (LEGACY_SELECTION_ORDER, SELECTION_ORDER):
+        raise ValueError(f"unsupported nominal selection order {order}")
+    rank = tuple(row[field] for field in order)
+    if not all(np.isfinite(value) for value in rank):
+        raise ValueError("nonfinite nominal selection metric")
+    return rank
+
+
 def _check_manifest(manifest, split):
     validate_manifest(manifest)
     if split not in ("validation", "test") or manifest["split"] != split or "diagnostic" in manifest:

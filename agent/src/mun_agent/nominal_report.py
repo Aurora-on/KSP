@@ -4,12 +4,17 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from .dataset import file_hash
-from .nominal import evaluate_nominal, load_manifest
+from .nominal import LEGACY_SELECTION_ORDER, SELECTION_ORDER, evaluate_nominal, load_manifest, validation_rank
 from .policy import load_policy
 
 
-def validation_rank(row):
-    return row["safe_landing_rate"], row["mean_return"], row["iteration"]
+def select_candidate(candidates):
+    # Archived cohorts reproduce their original freeze. For a mixed cohort,
+    # compare each run's published best under the current validation protocol.
+    historical = all(tuple(c["selection_order"]) == LEGACY_SELECTION_ORDER for c in candidates)
+    order = LEGACY_SELECTION_ORDER if historical else SELECTION_ORDER
+    selected = max(candidates, key=lambda c: validation_rank(c["best"], order))
+    return selected, list(order)
 
 
 def read_candidate(run, validation_sha):
@@ -24,12 +29,18 @@ def read_candidate(run, validation_sha):
     clones = [row for row in rows if row.get("phase") == "bc_only"]
     if len(clones) != 1 or not online:
         raise ValueError(f"{run} needs one clone baseline and at least one online validation")
-    best = max(online, key=validation_rank)
+    order = tuple(summary.get("selection_order", config.get("selection_order", LEGACY_SELECTION_ORDER)))
+    if "selection_order" in config and tuple(config["selection_order"]) != order:
+        raise ValueError(f"conflicting selection orders recorded in {run}")
+    best = max(online, key=lambda row: validation_rank(row, order))
     if best["iteration"] != summary["best_iteration"]:
         raise ValueError(f"stored best checkpoint disagrees with the validation log in {run}")
     if summary["iteration"] < config["config"]["iterations"] and not summary.get("time_budget_exhausted"):
         raise ValueError(f"{run} has not completed its fixed training budget")
-    return dict(seed=config["seed"], run=str(run), best=best, clone=clones[0], last=online[-1],
+    target_rates = [r.get("safe_in_target_rate") for r in online]
+    minimum_target = min(target_rates) if all(v is not None for v in target_rates) else None
+    return dict(seed=config["seed"], run=str(run), selection_order=list(order), best=best, clone=clones[0], last=online[-1],
+                min_online_safe_in_target_rate=minimum_target,
                 completed_iterations=summary["iteration"], elapsed_s=summary["elapsed_s"],
                 training_config=config["config"], prefill_replay_sha256=config["prefill_replay_sha256"],
                 world_model_sha256=config["pretrained_sha256"])
@@ -53,16 +64,21 @@ def render_report(report):
     def number(value):
         return "—" if value is None else f"{value:.3f}"
 
+    def rate(value):
+        return "—" if value is None else f"{value:.0%}"
+
     selected = report["selected"]
     lines = ["# Nominal simulator landing", "",
              f"Validation selected seed {selected['seed']} at online iteration {selected['iteration']}.",
-             "", "| Seed | BC safe | BC return | Best iteration | Best safe | Best return | Last safe |",
-             "| ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+             "Validation uses the following priority order. " + " → ".join(selected["selection_order"]) + ".",
+             "", "| Seed | BC safe | BC return | Best iteration | Best safe | Best in target | Best return | Last safe | Last in target | Min online in target |",
+             "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
     for run in report["runs"]:
         bc, best = run["clone"], run["best"]
         lines.append(f"| {run['seed']} | {bc['safe_landing_rate']:.0%} | {bc['mean_return']:.3f} | "
-                     f"{best['iteration']} | {best['safe_landing_rate']:.0%} | {best['mean_return']:.3f} | "
-                     f"{run['last']['safe_landing_rate']:.0%} |")
+                     f"{best['iteration']} | {best['safe_landing_rate']:.0%} | {rate(best.get('safe_in_target_rate'))} | "
+                     f"{best['mean_return']:.3f} | {run['last']['safe_landing_rate']:.0%} | "
+                     f"{rate(run['last'].get('safe_in_target_rate'))} | {rate(run.get('min_online_safe_in_target_rate'))} |")
     lines.extend(["", "| Split | Policy | Safe | In target | Safe landing error (m) | Fuel (kg) | Flight (s) | First impact (m/s) | Return |",
                   "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"])
     for split, methods in report["evaluations"].items():
@@ -75,10 +91,10 @@ def render_report(report):
               "Fuel, flight duration and return average all starts. Rates use the full manifest.", "",
               f"Qualification **{report['gates']['qualified']}**. Test target **{report['gates']['test_target']}**."]
     for method, check in report["validation_recheck"].items():
-        if not check["same_status_counts"] or abs(check["mean_return_delta"]) > 1e-5:
+        if not check["same_status_counts"] or check.get("same_target_rate") is False or abs(check["mean_return_delta"]) > 1e-5:
             lines.append(f"Frozen {method} validation recheck differs from the training log. "
                          f"Matching outcome counts {check['same_status_counts']}, "
-                         f"mean return difference {check['mean_return_delta']:.6f}.")
+                         f"matching target rate {check.get('same_target_rate')}, mean return difference {check['mean_return_delta']:.6f}.")
     return "\n".join(lines) + "\n"
 
 
@@ -107,7 +123,7 @@ def make_report(args):
     candidates = sorted((read_candidate(run, validation["sha256"]) for run in runs), key=lambda c: c["seed"])
     if len({c["seed"] for c in candidates}) != len(candidates):
         raise ValueError("each listed run must have a distinct training seed")
-    selected = max(candidates, key=lambda c: validation_rank(c["best"]))
+    selected, order = select_candidate(candidates)
     path = Path(selected["run"]) / "checkpoints"
     paths = {"bc_only": path / "bc-only.pt", "online": path / "best.pt"}
     if args.checkpoint and args.checkpoint.resolve() != paths["online"].resolve():
@@ -128,18 +144,20 @@ def make_report(args):
     out = args.out
     out.mkdir(parents=True, exist_ok=args.resume)
     provenance = dict(validation_sha256=validation["sha256"], test_sha256=test["sha256"],
-                      seed=selected["seed"], checkpoint_sha256=checksums,
+                      seed=selected["seed"], checkpoint_sha256=checksums, selection_order=order,
                       candidate_logs={str(c["seed"]): file_hash(Path(c["run"]) / "validation.jsonl") for c in candidates},
                       device=str(computation_device(args.device)))
     source = out / "selection.json"
     if source.is_file():
-        if json.loads(source.read_text()) != provenance:
+        archived = json.loads(source.read_text())
+        archived.setdefault("selection_order", list(LEGACY_SELECTION_ORDER))
+        if archived != provenance:
             raise ValueError("report inputs have changed since selection")
     else:
         if any(out.iterdir()):
             raise ValueError("cannot resume in a directory without the original selection")
         save_json(source, provenance)
-    selected_info = dict(seed=selected["seed"], iteration=selected["best"]["iteration"],
+    selected_info = dict(seed=selected["seed"], iteration=selected["best"]["iteration"], selection_order=order,
                          checkpoints={k: str(p) for k, p in paths.items()}, checkpoint_sha256=checksums)
     report = dict(selected=selected_info, runs=candidates, evaluations={}, validation_recheck={})
     device = computation_device(args.device)
@@ -160,6 +178,8 @@ def make_report(args):
                 ref = selected["clone" if method == "bc_only" else "best"]
                 report["validation_recheck"][method] = {
                     "same_status_counts": value["status_counts"] == ref["status_counts"],
+                    "same_target_rate": (value["safe_in_target_rate"] == ref["safe_in_target_rate"]
+                                         if "safe_in_target_rate" in ref else None),
                     "mean_return_delta": value["mean_return"] - ref["mean_return"]}
             evaluations[method] = value
         report["evaluations"][split] = evaluations

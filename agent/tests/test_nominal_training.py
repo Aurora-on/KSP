@@ -34,17 +34,24 @@ def test_nominal_fixed_budget_selection_and_safety_drop_artifacts(tmp_path, monk
     # Keep the real simulator rollout and its per-episode diagnostics, but inject
     # a controlled validation ranking, including two ties and a mid-run dip.
     evaluate = nominal.evaluate_nominal
-    ranks = iter([(0., 0.), (1., 10.), (1., 20.), (1., 20.), (.5, 200.), (1., 19.)])
+    ranks = iter([(0., 0., 0.), (1., 1., 10.), (1., 1., 20.), (1., 1., 20.),
+                  (.5, .5, 200.), (1., .75, 200.)])
     def ranked(policy, manifest):
         result = evaluate(policy, manifest)
-        result["safe_landing_rate"], result["mean_return"] = next(ranks)
+        result["safe_landing_rate"], result["safe_in_target_rate"], result["mean_return"] = next(ranks)
         return result
     monkeypatch.setattr(nominal, "evaluate_nominal", ranked)
     out = tmp_path / "nominal"
     result = train.train_policy(config, data, source, validation, out)
     assert result["iteration"] == 4 and result["completed_fixed_iterations"]
     assert result["best_iteration"] == 2 and result["best_mean_return"] == 20.
+    assert result["selection_order"] == list(nominal.SELECTION_ORDER) and result["best_safe_in_target_rate"] == 1.
     assert result["validation_passed_vs_bc"] and result["passed"] is None
+    from mun_agent.nominal_report import read_candidate
+    candidate = read_candidate(out, nominal.load_manifest(validation, "validation")["sha256"])
+    assert candidate["best"]["safe_in_target_rate"] == 1.
+    assert candidate["last"]["safe_in_target_rate"] == .75
+    assert candidate["min_online_safe_in_target_rate"] == .5
     rows = [json.loads(line) for line in (out / "validation.jsonl").read_text().splitlines()]
     assert [(r["phase"], r["iteration"]) for r in rows] == [
         ("untrained", 0), ("bc_only", 0), ("online", 1), ("online", 2), ("online", 3), ("online", 4)]

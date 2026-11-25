@@ -57,6 +57,14 @@ def _check_config(c):
         raise ValueError("invalid behavior-cloning batch or learning rate")
     if c.get("estimator", "pathwise") not in ("pathwise", "sampled"):
         raise ValueError("unknown policy-gradient estimator")
+    use_value = c.get("actor_terminal_value", True)
+    distance_cost = c.get("imagination_horizontal_cost_multiplier", 1.0)
+    if type(use_value) is not bool:
+        raise ValueError("actor_terminal_value must be a boolean")
+    if type(distance_cost) not in (float, int) or not math.isfinite(distance_cost) or distance_cost < 0:
+        raise ValueError("imagination_horizontal_cost_multiplier must be nonnegative and finite")
+    if c.get("estimator") == "sampled" and (not use_value or distance_cost != 1.0):
+        raise ValueError("custom actor terminal value and imagination distance cost require pathwise updates")
     if c.get("estimator") == "sampled" and not (math.isfinite(c["action_std"]) and c["action_std"] > 0):
         raise ValueError("sampled policy needs a positive, finite Gaussian standard deviation")
     if c["task"] not in ("vertical", "nominal") or not 0 < c["max_seconds"] <= 7200:
@@ -192,12 +200,13 @@ def _hardware(device):
 def _select_online(row, progress, is_nominal):
     if not is_nominal:
         return row["safe_landing_rate"] > progress["best_rate"]
-    if not math.isfinite(row["mean_return"]):
-        raise ValueError("nonfinite nominal validation return")
-    candidate = (row["safe_landing_rate"], row["mean_return"], row["iteration"])
-    previous = (progress["best_rate"], progress.get("best_mean_return", -math.inf),
-                progress["best_iteration"] if progress["best_iteration"] is not None else -1)
-    return candidate > previous
+    order = progress["selection_order"]
+    candidate = nominal.validation_rank(row, order)
+    if progress["best_iteration"] is None:
+        return True
+    previous = next(r for r in progress["validations"]
+                    if r["phase"] == "online" and r["iteration"] == progress["best_iteration"])
+    return candidate > nominal.validation_rank(previous, order)
 
 
 def _save_evaluation_point(out, progress, snapshot):
@@ -323,6 +332,8 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
     progress = dict(iteration=-1, actor_updates=0, model_updates=0, env_steps=meta["env_steps"],
                     elapsed_s=0., best_rate=-1., best_iteration=None, metrics=[], validations=[],
                     warm_start_planned=bool(c.get("bc_updates")))
+    if is_nominal:
+        progress["selection_order"] = list(nominal.SELECTION_ORDER)
     if resume and not latest.is_file():
         # A crash during setup can precede the first complete checkpoint.
         metadata_path = out / "config.json"
@@ -346,11 +357,14 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
         fifo = [Episode(**{k:v.numpy() for k,v in record.items()}) for record in saved["fifo"]]
         outcomes = saved["fifo_provenance"]
         progress = saved["progress"]
+        if is_nominal:
+            progress.setdefault("selection_order", list(nominal.LEGACY_SELECTION_ORDER))
         _recover_rng(saved, rng, device)
         _publish_files(out, progress, progress["best_iteration"] == progress["iteration"], saved)
     else:
         checkpoints.mkdir(exist_ok=True)
         _write_json(out / "config.json", dict(provenance, code=code_version(), training_source_sha256=file_hash(Path(__file__)), wm_arch=wm_arch,
+                                               **({"selection_order": progress["selection_order"]} if is_nominal else {}),
                                                hardware=_hardware(device),
                                                prefill_path=str(prefill_path), validation_path=str(validation_path),
                                                world_model_path=str(world_model_path)))
@@ -375,6 +389,9 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
         collection_policy = _TimedPolicy(_GaussianCollector(actor, spec, c["action_std"]), check_budget)
         actor_update = update_sampled_actor_critic
         update_options["action_std"] = c["action_std"]
+    else:
+        update_options["actor_terminal_value"] = c.get("actor_terminal_value", True)
+        update_options["imagination_horizontal_cost_multiplier"] = c.get("imagination_horizontal_cost_multiplier", 1.0)
 
     def commit(iteration, improved):
         progress["iteration"] = iteration
@@ -410,6 +427,7 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
             return False
         if is_nominal:
             progress["best_mean_return"] = row["mean_return"]
+            progress["best_safe_in_target_rate"] = row["safe_in_target_rate"]
         progress.update(best_rate=row["safe_landing_rate"], best_iteration=iteration)
         return True
 
@@ -496,7 +514,6 @@ def _train(config, prefill_path, world_model_path, validation_path, out, seed, d
     summary["threshold_on_supplied_manifest"] = progress["best_rate"] >= .80
     if is_nominal:
         # Selection sees validation only. S3 acceptance also requires frozen test and BC comparisons.
-        summary["selection_order"] = ["safe_landing_rate", "mean_return", "iteration"]
         summary["completed_fixed_iterations"] = progress["iteration"] == c["iterations"]
         summary["passed"] = None
         summary["validation_passed_vs_bc"] = bool(

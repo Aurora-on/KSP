@@ -6,7 +6,7 @@ from pathlib import Path
 from .dataset import file_hash, load_dataset
 from .fit import computation_device
 from .nominal import load_manifest, policy_risk, risk_report, visited_pairs
-from .nominal_report import read_candidate, save_json, validation_rank
+from .nominal_report import read_candidate, save_json, select_candidate
 from .policy import load_policy
 from .train import load_training_world_model
 
@@ -94,7 +94,7 @@ def run_risk_command(args):
     candidates = sorted((read_candidate(run, manifest["sha256"]) for run in args.run), key=lambda c: c["seed"])
     if not candidates or len({c["seed"] for c in candidates}) != len(candidates):
         raise ValueError("risk reporting requires distinct completed seeds")
-    selected = max(candidates, key=lambda c: validation_rank(c["best"]))
+    selected, order = select_candidate(candidates)
     replay, metadata = load_dataset(args.data)
     if any(c["prefill_replay_sha256"] != metadata["replay_sha256"] for c in candidates):
         raise ValueError("risk prefill must match every run's permanent training source")
@@ -147,7 +147,7 @@ def run_risk_command(args):
         shared = winner_seed_visits if candidate["seed"] == selected["seed"] else None
         records = _drop_records(Path(candidate["run"]), candidate["seed"], manifest, args.out, device, shared=shared)
         runs.append({"seed": candidate["seed"], "run": candidate["run"], "declines": records})
-    report = {"validation_sha256": manifest["sha256"], "validation_episodes": len(manifest["starts"]),
+    report = {"selection_order": order, "validation_sha256": manifest["sha256"], "validation_episodes": len(manifest["starts"]),
               "selected": identity, "selected_policy": selected_file.name, "runs": runs,
               "last_policy_selected_seed": last_file.name, "best_validation": selected["best"],
               "last_validation_selected_seed": selected["last"],

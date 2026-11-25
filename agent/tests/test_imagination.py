@@ -30,12 +30,14 @@ def test_lambda_return_matches_explicit_n_step_mixture(lam):
         torch.testing.assert_close(result[t], expected)
 
 
-def test_actor_gradient_includes_survival_and_terminal_value(monkeypatch):
+@pytest.mark.parametrize("terminal_value,multiplier", [(True, 1.), (False, 1.), (True, 5.), (False, 5.)])
+def test_pathwise_actor_gradient_and_critic_target(monkeypatch, terminal_value, multiplier):
     class ToyModel(nn.Module):
         def __init__(self):
             super().__init__()
             self.weight = nn.Parameter(torch.tensor(.75))
-            self.spec = {}
+            self.spec = {"scales": {"position": 2.}, "control_dt": .2,
+                         "source_config": {"reward": {"horizontal_cost": .1}}}
 
         def step(self, state, action):
             following = state + self.weight * action[:, :1]
@@ -60,23 +62,34 @@ def test_actor_gradient_includes_survival_and_terminal_value(monkeypatch):
     wm, actor, critic = ToyModel(), ToyActor(), ToyCritic(width=8)
     starts = torch.zeros(3, 18)
 
+    def step_reward(next_state):
+        distance = np.sqrt(2) * abs(next_state) * 2.
+        return .1 * next_state - (multiplier - 1) * .1 * distance * .2
+
     def objective(bias):
         state, c, total = 0., 1., 0.
         for t in range(2):
             action = bias + state
             next_state = state + .75 * action
-            total += .9**t * c * next_state * .1
+            total += .9**t * c * step_reward(next_state)
             c *= 1 / (1 + np.exp(-(action - state)))
             state = next_state
-        return total + .9**2 * c * (.3 * state)
+        return total + (.9**2 * c * (.3 * state) if terminal_value else 0.)
 
     finite_difference = (objective(.2001) - objective(.1999)) / .0002
     original = wm.weight.detach().clone()
     stats = update_actor_critic(wm, actor, critic, starts, torch.optim.SGD(actor.parameters(), lr=.1),
-                                torch.optim.SGD(critic.parameters(), lr=.1), horizon=2, gamma=.9)
-    assert stats["actor_grad_norm"] == pytest.approx(finite_difference, rel=1e-4)
+                                torch.optim.SGD(critic.parameters(), lr=.1), horizon=2, gamma=.9,
+                                actor_terminal_value=terminal_value, imagination_horizontal_cost_multiplier=multiplier)
+    assert stats["actor_grad_norm"] == pytest.approx(abs(finite_difference), rel=1e-4)
     assert stats["actor_loss"] == pytest.approx(-objective(.2), rel=1e-5)
-    assert actor.bias > .2
+    assert (actor.bias - .2) * finite_difference > 0
+    s1 = .75 * .2
+    s2 = s1 + .75 * (.2 + s1)
+    cont = 1 / (1 + np.exp(-.2))
+    target1 = step_reward(s2) + .9 * cont * (.3 * s2)
+    target0 = step_reward(s1) + .9 * cont * (.05 * .3 * s1 + .95 * target1)
+    assert stats["value_target_mean"] == pytest.approx((target0 + cont * target1) / (1 + cont), rel=1e-5)
     assert actor.bias.grad.abs() <= .100001
     assert wm.weight.requires_grad and wm.weight.grad is None
     torch.testing.assert_close(wm.weight, original)

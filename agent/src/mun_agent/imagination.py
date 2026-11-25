@@ -104,8 +104,9 @@ def lambda_returns(rewards, continuations, values, gamma=.997, lam=.95):
 
 
 def update_actor_critic(model, actor, critic, starts, actor_optimizer, critic_optimizer, *,
-                        horizon=32, gamma=.997, lam=.95, critic_epochs=2):
-    """One BPTT actor update and value regression on the same detached, fixed targets."""
+                        horizon=32, gamma=.997, lam=.95, critic_epochs=2,
+                        actor_terminal_value=True, imagination_horizontal_cost_multiplier=1.0):
+    """Optimize imagined rewards, with optional actor bootstrap, then fit critic λ-returns."""
     if (type(horizon) is not int or horizon < 1 or type(critic_epochs) is not int or critic_epochs < 1
             or starts.ndim != 2 or starts.shape[1] != 18 or not len(starts)):
         raise ValueError("positive horizon, critic_epochs and a batch of 18-D states are required")
@@ -121,6 +122,10 @@ def update_actor_critic(model, actor, critic, starts, actor_optimizer, critic_op
             action = actor(state)
             following, probs, _ = model.step(state, action)
             reward, continuation = task_reward(state, action, following, probs, model.spec)
+            if imagination_horizontal_cost_multiplier != 1.0:
+                distance = torch.linalg.vector_norm(following[..., :2], dim=-1) * model.spec["scales"]["position"]
+                extra_cost = (imagination_horizontal_cost_multiplier - 1) * model.spec["source_config"]["reward"]["horizontal_cost"]
+                reward = reward - extra_cost * distance * model.spec["control_dt"]
             trajectory_return = trajectory_return + gamma**t * survival * reward
             weights.append(survival.detach())
             rewards.append(reward.detach())
@@ -131,7 +136,10 @@ def update_actor_critic(model, actor, critic, starts, actor_optimizer, critic_op
             survival = survival * continuation
             states.append(state.detach())
 
-        objective = (trajectory_return + gamma**horizon * survival * critic(state)).mean()
+        actor_return = trajectory_return
+        if actor_terminal_value:
+            actor_return = actor_return + gamma**horizon * survival * critic(state)
+        objective = actor_return.mean()
         actor_optimizer.zero_grad(set_to_none=True)
         (-objective).backward()
         actor_norm = nn.utils.clip_grad_norm_(actor.parameters(), 1.0, error_if_nonfinite=True)

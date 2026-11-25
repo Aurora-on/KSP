@@ -21,6 +21,8 @@
   "critic_epochs": 2,
   "value_scale": 100.0,
   "horizon": 64,
+  "actor_terminal_value": false,
+  "imagination_horizontal_cost_multiplier": 5.0,
   "gamma": 0.997,
   "lambda": 0.95,
   "validate_every": 2,
