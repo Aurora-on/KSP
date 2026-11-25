@@ -65,6 +65,11 @@ than on an unqualified flat site. The craft used for the base snapshot reported
 80.852 m surface altitude. The configured target altitude is still 0 m, and the
 clearance reference remains `TBD`.
 
+A coarse 151-point scan along the equator from longitude 139.0° to 140.5° found
+the lowest 5 m-grid slope at latitude 0°, longitude 140.5°: 2.623°, with 1.23 m
+of 10 m-grid relief. This is a replacement candidate for follow-up, not an
+accepted site.
+
 A 110 m target-frame base save (`Mun landing-candidate-100m`) was also created
 and verified; the debug calls advanced the state, so the observed surface
 altitude was 80.852 m rather than the requested value. This base save is only a

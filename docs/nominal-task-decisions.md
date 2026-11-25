@@ -11,7 +11,9 @@ task integration. A first read-only measurement recorded 11,460 kg wet mass,
 6.425°. A wider check found a steep rise to about 100 m within 10 m north of
 the target. These are candidate measurements, not frozen task values: the site
 needs review or replacement, and the target altitude/clearance reference,
-actuator calibration and named descent save remain open.
+actuator calibration and named descent save remain open. A coarse equatorial
+scan identified latitude 0°, longitude 140.5° as a better replacement
+candidate (2.623° 5 m-grid slope), subject to verification.
 
 ## Main-engine fuel observation (2026-11-26)
 
