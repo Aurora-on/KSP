@@ -637,8 +637,8 @@ class KSPEnv:
                 conn.krpc.release_tick()
             except Exception:
                 pass
-            if not space_center.can_save:
-                raise ResetError("SpaceCenter.can_save is false; the game cannot be saved")
+            # can_save describes saving, not loading.  kRPC's load path does
+            # not require it and low-altitude saves are loadable.
             space_center.load(name)
             deadline = started + timeout_s
             while int(conn.krpc.game_state_loads) <= loads_before:

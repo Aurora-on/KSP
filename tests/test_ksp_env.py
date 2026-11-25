@@ -535,6 +535,22 @@ class StepSequencingTests(unittest.TestCase):
         self.assertEqual(observation.main_engine_fuel, 12.0)
         env.close()
 
+    def test_reset_loads_even_when_can_save_is_false(self):
+        env, connection = self.make_env()
+        connection.space_center.can_save = False
+
+        def load(name):
+            self.assertEqual(name, "low-save")
+            connection.krpc.game_state_loads = 2
+
+        connection.space_center.load = load
+        observation, info = env.reset(save_name="low-save")
+        self.assertEqual(info.save_name, "low-save")
+        self.assertEqual(info.game_state_loads, 2)
+        self.assertEqual(observation.main_engine_fuel, 12.0)
+        self.assertFalse(connection.space_center.active_vessel.control.rcs)
+        env.close()
+
 
 if __name__ == "__main__":
     unittest.main()

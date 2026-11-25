@@ -43,7 +43,7 @@ Do not hide an autopilot or attitude controller inside the environment. If one i
 
 ## 4. Reset and step semantics
 
-- Reset uses a named save/snapshot, checks `can_save` and `game_state_loads`, reacquires state and verifies post-reset tolerances.
+- Reset uses a named save/snapshot, loads it regardless of `can_save`, waits for `game_state_loads`, reacquires state and verifies post-reset tolerances. `can_save` describes saving only.
 - The exact save name, snapshot hash and tolerance are **TBD**.
 - Stepping uses kRPC 0.7 `hold_tick`, `next_tick` and `release_tick`. For consecutive task transitions, read the first observation and issue actions inside a control session. The adapter holds the physics tick across policy decisions and releases it on session exit. Standalone steps release their own hold. [Adapter API](ksp-env.md#stepping-by-game-time)
 - Record the actual universal-time delta for every step and compare it with the intended action interval.

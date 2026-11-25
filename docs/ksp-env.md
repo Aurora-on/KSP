@@ -195,6 +195,9 @@ still needs a game run with the selected descent save.
 `reset(save_name=...)` loads a named save, waits for `game_state_loads` to
 advance, requires the Flight scene, and returns `(Observation, ResetInfo)`.
 No save name has been chosen yet, so it must be supplied explicitly.
+Loading does not depend on `SpaceCenter.can_save`; that flag only describes
+whether the current game state can be saved. Low-altitude saves remain
+loadable even when `can_save` is false.
 
 ## Error taxonomy
 
