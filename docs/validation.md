@@ -1,5 +1,31 @@
 # Validation record
 
+## 2026-11-25 — S3 policy handoff release
+
+The validation-selected S3 policy was published as release
+`s3-source-seed33-r22-v1` for simulator-side reuse. The release is not a KSP
+policy-transfer result and does not change the KSP readiness flags.
+
+| Artifact | Identity |
+| --- | --- |
+| Release ZIP | `s3-source-seed33-r22-v1.zip`, 109,653 bytes, SHA-256 `01e5dad61253d1910e96b343e8d0dbe7719d8b59f8cab7139e10c003983812f9` |
+| `policy.pt` | 82,185 bytes, SHA-256 `4cb558d7e7fa66e0c9dca317b96c0d34dec58a60deba99802768178e1be57fee` |
+| `s3-validation.json` | File SHA-256 `d5217364bed2ecde6b0ee7da41e5d10e2614aa8c5942858caa18002a99d40a1f`; manifest SHA-256 `2bf7a0898b9ed4f38dd46f996765f675a97fe703f0c9dcc0fee83727d0e51321` |
+| `s3-test.json` | File SHA-256 `eeadaa26e687100577b763aad68ef9a5d4f7aa70315bb7803536153a9b865478`; manifest SHA-256 `c12a88bc1047314fb482bbeec67ba5395e608cdd8be444e7f212f23e8a483f35` |
+| Source checkpoint | SHA-256 `a4451b97f733712c4d7832572d787ff24b816d214bb9f55fc03cdfc0837eae65` |
+| Reference code revision | `0e4ff9daef78bf3ceba0e467288b62a4ffaccae0` |
+| Runtime | Python 3.14.4, PyTorch 2.15.0, NumPy 2.5.4, Gymnasium 1.4.0 |
+
+The bundle's `handoff.json` records an eight-frame reference probe from the
+first validation start, `validation-2026-000000`. The public verifier checks the
+bundle file hashes, both manifests and those eight CPU actions. Release
+acceptance additionally compared the exported policy with the source checkpoint
+on the first 12 frames of each of the 100 validation starts, 1,200 frames in
+total; all four action components had a maximum absolute difference of 0. The
+source checkpoint is maintained outside the repository, so the 1,200-frame
+comparison is recorded here as maintainer release evidence and cannot be
+reproduced from the public bundle alone.
+
 ## 2026-11-25 — Stable S3 training in the nominal 6DOF simulator
 
 From a fresh behavior-cloning warm start, seeds 31, 32 and 33 each completed 24 online iterations. Each had 100/100 safe landings at every scheduled validation and 100/100 safe in-target landings at iteration 24. Validation selected seed 33, iteration 22, by safety, safe in-target rate, raw simulator mean return and then later iteration. The selected policy met all gates on the same test manifest used in the November 24 study.
@@ -48,7 +74,7 @@ The [configuration](../agent/configs/s3_nominal.json) removes the actor's termin
 
 Replay SHA-256 `b26f50ac573ea3f7fa1113cc7137bb4868cf3757caf4e53a7e2fb33ac269021c`, initial world model `cade1219d72c89bf5219690be3ec8a7837a09f4a681a1771a124d66a3fad7cff`, validation starts `2bf7a0898b9ed4f38dd46f996765f675a97fe703f0c9dcc0fee83727d0e51321`, test starts `c12a88bc1047314fb482bbeec67ba5395e608cdd8be444e7f212f23e8a483f35` and selected checkpoint `a4451b97f733712c4d7832572d787ff24b816d214bb9f55fc03cdfc0837eae65`.
 
-Run `agent/scripts/launch_seeds.sh --device cpu --seeds 31,32,33 --jobs-per-device 3 --out-root agent/runs/s3-stable` from the repository root after the data preparation in the [agent instructions](../agent/README.md). Use the three run directories for `report`, `plot` and `policy-risk`. The local outputs are `report/report.md`, `risk/index.json`, `validation-curve.png` and `probe-reproduction.json` under that run root. The implementation passed 96 agent tests and 61 simulator tests, with one skipped in each suite. Offline unittest discovery ran 28 cases with five skips. The critic-slope tool reproduced all 630 paired perturbations from the seed-32 reference, including both the predicted and the measured return differences. The archived recipe and its November 24 acceptance follow below.
+Run `agent/scripts/launch_seeds.sh --device cpu --seeds 31,32,33 --jobs-per-device 3 --out-root agent/runs/s3-stable` from the repository root after the data preparation in the [agent instructions](../agent/README.md). Use the three run directories for `report`, `plot` and `policy-risk`. The local outputs are `report/report.md`, `risk/index.json`, `validation-curve.png` and `probe-reproduction.json` under that run root. The implementation passed 97 agent tests and 61 simulator tests, with one skipped in each suite. Offline unittest discovery ran 29 cases with five skips. The critic-slope tool reproduced all 630 paired perturbations from the seed-32 reference, including both the predicted and the measured return differences. The archived recipe and its November 24 acceptance follow below.
 
 ## 2026-11-24 — S3 nominal 6DOF simulator landing
 

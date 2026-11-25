@@ -24,7 +24,7 @@ The shared KSP action order is `[rcs_pitch, rcs_yaw, rcs_roll, main_engine_throt
 
 Supply the target origin, basis and handedness, the craft basis, the attitude transform direction and the fuel resource-to-kg conversion. kRPC currently reads `xyzw`, position, velocity and angular velocity in the selected target frame, plus a resource amount. Converting the quaternion components alone leaves the basis and angular-velocity frame unresolved. Identify the position reference point and its offset from deployed gear on the local terrain. [KSP observation](../ksp_env/env.py) · [Simulator state](../simulator/src/mun_lander/state.py)
 
-Give each control interval its measured start/end universal time (UT) and each raw physics sample its UT. For grouped ticks, `dt = ut_end_s - ut_start_s` over the whole action hold. Record skipped ticks, tick or load failures and reload boundaries explicitly. The simulator uses a nominal 0.1 s control interval and can end a transition early. The KSP task interval is open. [Adapter timing](../ksp_env/env.py) · [Task timing](task-spec.md)
+Give each control interval its measured start/end universal time (UT) and each raw physics sample its UT. For grouped ticks, `dt = ut_end_s - ut_start_s` over the whole action hold. Record skipped ticks, tick or load failures and reload boundaries explicitly. The simulator uses a nominal 0.1 s control interval and can end a transition early. The KSP task interval is frozen at 0.1 s of game time; adapter implementation and timing validation remain open. [Adapter timing](../ksp_env/env.py) · [Task timing](task-spec.md)
 
 ## Outcomes and contact calibration
 
