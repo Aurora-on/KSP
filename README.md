@@ -109,5 +109,5 @@ simulator/     可独立安装的 6DOF 预训练模拟器、测试、接口文�
 - 观测、动作或数据格式变更时，先更新契约文档，再改代码。
 - 每两周按开发顺序中的验收节点做一次集成检查。
 
-下一步是固定实船和 Mun 下降快照，记录 TBD 数值的决策，验收 KSP `reset/step`，并按共同转移数据校准模拟器；详见 [任务契约](docs/task-spec.md)、[开发顺序](docs/roadmap.md) 与 [仓库接入说明](simulator/docs/REPOSITORY_INTEGRATION.md)。仓库尚未指定开源许可证。
+下一步是固定实船和 Mun 下降快照，记录 TBD 数值的决策，验收 KSP `reset/step`，并按共同转移数据校准模拟器；详见 [任务契约](docs/task-spec.md)、[开发顺序](docs/roadmap.md) 与 [仓库接入说明](simulator/docs/REPOSITORY_INTEGRATION.md)。各组的具体待办见 [分组待办](docs/todo.md)。仓库尚未指定开源许可证。
 
