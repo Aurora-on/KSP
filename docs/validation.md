@@ -1,5 +1,55 @@
 # Validation record
 
+## 2026-11-25 — Stable S3 training in the nominal 6DOF simulator
+
+From a fresh behavior-cloning warm start, seeds 31, 32 and 33 each completed 24 online iterations. Each had 100/100 safe landings at every scheduled validation and 100/100 safe in-target landings at iteration 24. Validation selected seed 33, iteration 22, by safety, safe in-target rate, raw simulator mean return and then later iteration. The selected policy met all gates on the same test manifest used in the November 24 study.
+
+### Complete training runs
+
+| Seed | Online validations | Minimum safe / in target (per 100) | Last safe / in target | Last landing error (m) | Last return | Best iteration / return | Training time (min) |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 31 | 13 | 100 / 97 | 100 / 100 | 1.472 | 93.2908 | 16 / 93.3094 | 8.4 |
+| 32 | 13 | 100 / 95 | 100 / 100 | 1.304 | 93.2648 | 24 / 93.2648 | 8.6 |
+| 33 | 13 | 100 / 100 | 100 / 100 | 1.385 | 93.3745 | 22 / 93.3988 | 8.6 |
+
+The actors and online world models from all three seeds matched the independent shaping probe tensor-for-tensor at each of the 13 online validation points and after behavior cloning. The probe and fresh run also agreed exactly on outcome counts, in-target rates, landing errors and raw mean returns at those points. The one-seed 48-iteration extension used the unshaped reward and is a separate diagnostic.
+
+### Frozen comparison on 100 starts per split
+
+| Split | Controller | Safe | Safe in target | Safe landing error (m) | Total fuel (kg) | Flight time (s) | First impact (m/s) | Raw return |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| validation | bc_only | 100 | 100 | 1.739 | 32.008 | 34.557 | 0.514 | 92.0332 |
+| validation | online | 100 | 100 | 1.361 | 24.803 | 27.503 | 1.356 | 93.3988 |
+| validation | scripted | 100 | 100 | 1.328 | 31.515 | 34.080 | 0.654 | 92.1085 |
+| test | bc_only | 100 | 100 | 1.644 | 32.047 | 34.542 | 0.511 | 92.1042 |
+| test | online | 100 | 100 | 1.307 | 24.818 | 27.481 | 1.353 | 93.4473 |
+| test | scripted | 100 | 100 | 1.283 | 31.553 | 34.066 | 0.657 | 92.1716 |
+
+On validation and test, the online actor matched cloning on safety and improved mean return by 1.3656 and 1.3431, respectively. It passed the 80% safety qualification, the cloning comparisons and the test targets of 95% safety and 90% safe in-target. Simulator scoring uses the original reward for all three controllers.
+
+### Model and policy diagnostics
+
+| Data distribution | Horizon (steps) | Position (m) | Velocity (m/s) | Tilt (deg) | Horizontal position (m) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Selected policy | 1 | 0.001 | 0.010 | 0.025 | 0.000 |
+| Selected policy | 5 | 0.012 | 0.033 | 0.125 | 0.006 |
+| Selected policy | 15 | 0.075 | 0.087 | 0.438 | 0.052 |
+| Selected policy | 32 | 0.302 | 0.179 | 1.074 | 0.226 |
+| Permanent prefill | 1 | 0.002 | 0.010 | 0.047 | 0.001 |
+| Permanent prefill | 5 | 0.014 | 0.040 | 0.224 | 0.007 |
+| Permanent prefill | 15 | 0.089 | 0.108 | 0.636 | 0.060 |
+| Permanent prefill | 32 | 0.343 | 0.214 | 1.375 | 0.252 |
+
+Across 400 paired 32-step windows on the selected actor's fixed validation flights, mean unshaped return was 24.3713 in the simulator and 24.2092 in the world model (mean absolute difference 0.1746). There were 0 safety-rate declines between consecutive evaluations.
+
+### Inputs and reproduction
+
+The [configuration](../agent/configs/s3_nominal.json) removes the actor's terminal value and uses a 5× horizontal-distance cost for imagined rewards. The critic fits shaped λ-returns. The online budget was 720 actor and 960 model updates per seed on Apple M5 CPU, two threads per process. The training implementation is commit `bed9f12`. Run metadata captured the edits on base `ce2994daa1ab` and the training source SHA-256 was `8e72d598604da352ee2866d43fc26fa7936419adb91f60c2a94c73572ba8619e`.
+
+Replay SHA-256 `b26f50ac573ea3f7fa1113cc7137bb4868cf3757caf4e53a7e2fb33ac269021c`, initial world model `cade1219d72c89bf5219690be3ec8a7837a09f4a681a1771a124d66a3fad7cff`, validation starts `2bf7a0898b9ed4f38dd46f996765f675a97fe703f0c9dcc0fee83727d0e51321`, test starts `c12a88bc1047314fb482bbeec67ba5395e608cdd8be444e7f212f23e8a483f35` and selected checkpoint `a4451b97f733712c4d7832572d787ff24b816d214bb9f55fc03cdfc0837eae65`.
+
+Run `agent/scripts/launch_seeds.sh --device cpu --seeds 31,32,33 --jobs-per-device 3 --out-root agent/runs/s3-stable` from the repository root after the data preparation in the [agent instructions](../agent/README.md). Use the three run directories for `report`, `plot` and `policy-risk`. The local outputs are `report/report.md`, `risk/index.json`, `validation-curve.png` and `probe-reproduction.json` under that run root. The implementation passed 96 agent tests and 61 simulator tests, with one skipped in each suite. Offline unittest discovery ran 28 cases with five skips. The critic-slope tool reproduced all 630 paired perturbations from the seed-32 reference, including both the predicted and the measured return differences. The archived recipe and its November 24 acceptance follow below.
+
 ## 2026-11-24 — S3 nominal 6DOF simulator landing
 
 The validation-selected seed-32 actor landed safely inside the target on 100/100 fixed validation starts and 100/100 fixed test starts. The corresponding behavior clone and independently run scripted controller also scored 100/100 on both measures on each split. One online update cycle improved the selected actor's average return over cloning on both splits. Continuing the identical training recipe for 24 cycles led to 100/100 timeouts on the validation manifest for every seed.
@@ -39,7 +89,7 @@ The three seeds were fixed at 31, 32 and 33. Each independently initialized and 
 | Selected seed-32 cloning-only checkpoint | `60911be1a687d8dc6697369871260866fd9c6acae7db3225ed8c57978cb4ebf5` |
 | Selected seed-32 online checkpoint | `67a3ca83692d2f83c231e5750bfad0cbc84c400f078bd2f5585a4ed947ab652b` |
 
-The fits ran on an Apple M5 CPU, two threads per seed, Python 3.14.4, NumPy 2.5.4 and PyTorch 2.15.0. The run metadata recorded base commit `e9c5795cf7013ceba894159352ab9b9b27bcf7a1` with S3 edits. Training-time `train.py` SHA-256 was `8b85449f0f17b5ab88a406ebb8b7b5c354338344ae915fe034336055f173d70e`. The implementation and three-seed launcher are in `0508ba2a6cbe4ba2f966527d237c18bb74ba2dcb`. All runs used the same [nominal configuration](../agent/configs/s3_nominal.json). The MLP uses heading-aligned observation features and all four learned action channels. Cloning ran 6,000 updates (batch 256). Each of 24 cycles collected 6 full episodes, updated the model 40 times and applied 30 pathwise actor updates (H=64, batch 128, actor LR 0.00001). Training used the existing task reward, nominal initial distribution, contact thresholds and timeout. Each run completed 960 online model updates and 720 actor updates.
+The fits ran on an Apple M5 CPU, two threads per seed, Python 3.14.4, NumPy 2.5.4 and PyTorch 2.15.0. The run metadata recorded base commit `e9c5795cf7013ceba894159352ab9b9b27bcf7a1` with S3 edits. Training-time `train.py` SHA-256 was `8b85449f0f17b5ab88a406ebb8b7b5c354338344ae915fe034336055f173d70e`. The implementation and three-seed launcher are in `0508ba2a6cbe4ba2f966527d237c18bb74ba2dcb`. All three original runs used the [archived nominal configuration](../agent/configs/s3_nominal_legacy.json). The MLP uses heading-aligned observation features and all four learned action channels. Cloning ran 6,000 updates (batch 256). Each of 24 cycles collected 6 full episodes, updated the model 40 times and applied 30 pathwise actor updates (H=64, batch 128, actor LR 0.00001). Training used the existing task reward, nominal initial distribution, contact thresholds and timeout. Each run completed 960 online model updates and 720 actor updates.
 
 ### Validation across the fixed 24-cycle budget
 
@@ -107,7 +157,7 @@ The [agent README](../agent/README.md) gives preparation, L40 launch, resume, se
 mun-agent collect --config agent/configs/s3_prefill.json --seed 240 --device cpu --out agent/data/s3-nominal-prefill
 mun-agent prepare-nominal --validation agent/data/s3-validation.json --test agent/data/s3-test.json
 # Run with SEED=31, 32 and 33 in separate processes.
-mun-agent train-policy --config agent/configs/s3_nominal.json --seed "$SEED" --device cpu --data agent/data/s3-nominal-prefill --world-model agent/runs/s1-contact-seed31/best.pt --validation agent/data/s3-validation.json --out "agent/runs/s3-nominal-seed$SEED"
+mun-agent train-policy --config agent/configs/s3_nominal_legacy.json --seed "$SEED" --device cpu --data agent/data/s3-nominal-prefill --world-model agent/runs/s1-contact-seed31/best.pt --validation agent/data/s3-validation.json --out "agent/runs/s3-nominal-seed$SEED"
 ```
 
 In `agent/runs/`, `s3-nominal-learning-curve.png` shows validation safety, target rate, return and first-touch speed. `s3-nominal-report/{report.json,report.md}` holds the three-seed results and same-manifest baselines. `s3-nominal-risk/index.json` links both winner/last policy diagnostics and all six drop snapshots. The selected inference and training checkpoint is `s3-nominal-seed32/checkpoints/best.pt`. Data, checkpoints, generated reports and plots are excluded from Git. This milestone used the standalone nominal simulator. Live KSP, physical OOD tests and the transfer research questions are separate experiments.

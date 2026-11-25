@@ -66,7 +66,7 @@ mun-agent collect --config agent/configs/s3_prefill.json --device cpu --seed 240
 mun-agent prepare-nominal --validation agent/data/s3-validation.json --test agent/data/s3-test.json
 ```
 
-**启动与续训。** `s3_nominal.json` 启用主推力和三个 RCS 通道，先用低噪声脚本示范拟合策略，再运行固定在线迭代预算；迭代数、验证频率和墙钟预算以配置为准。启动器仅在当前主机创建进程。以下命令让三个种子使用两块卡，每卡同时最多两个独立训练进程。
+**启动与续训。** `s3_nominal.json` 启用主推力和三个 RCS 通道，用低噪声脚本示范热启动，随后运行 24 轮在线训练。actor 优化 64 步想象回报，去掉窗口末端价值项，想象中的水平距离代价取环境系数的 5 倍。训练日志中的 `imagined_return` 记录这个塑形目标窗口内的回报，验证和测试的 `mean_return` 由原模拟器计算。旧训练配方见 [s3_nominal_legacy.json](configs/s3_nominal_legacy.json)。启动器仅在当前主机创建进程。以下命令让三个种子使用两块卡，每卡同时最多两个独立训练进程。
 
 ```sh
 agent/scripts/launch_seeds.sh --seeds 31,32,33 --gpus 0,1 --jobs-per-device 2 --out-root agent/runs/s3-l40
@@ -80,7 +80,7 @@ agent/scripts/launch_seeds.sh --seeds 31,32,33 --gpus 0,1 --jobs-per-device 2 --
 
 CPU 环境可运行 `python -m pytest agent/tests/test_nominal_training.py agent/tests/test_launch_seeds.py -q` 验证训练入口和并发调度。要在 CPU 上单独启动训练，可使用 `agent/scripts/launch_seeds.sh --device cpu --seeds 31 --out-root agent/runs/s3-cpu`。
 
-**选点与评估。** 每个种子先按验证集安全着陆率选点，平局按平均回报、随后按较晚迭代选择。所有种子完成后，一次向 `report` 提交全部运行目录；报告并列给出仅行为克隆、在线策略和同清单现场运行的脚本控制器结果，测试清单只用于最终评估。以下命令还可生成验证曲线和风险分析；输出路径需为新路径。
+**选点与评估。** 在种子内部和跨种子选点时，依次比较固定验证清单上的安全着陆率、安全入靶率、模拟器原始平均回报和轮次，前三项均相同时取较晚的检查点。所有种子完成后，一次向 `report` 提交全部运行目录；报告并列给出仅行为克隆、在线策略和同清单现场运行的脚本控制器结果，测试清单只用于最终评估。以下命令还可生成验证曲线和风险分析；输出路径需为新路径。
 
 ```sh
 mun-agent report --run agent/runs/s3-l40/seed-31 --run agent/runs/s3-l40/seed-32 --run agent/runs/s3-l40/seed-33 --validation agent/data/s3-validation.json --test agent/data/s3-test.json --out agent/runs/s3-l40/report --device cpu
