@@ -100,7 +100,7 @@ Coupled parameter changes may be reported as a separate stress test, but they do
 - Exact number of seeds beyond the minimum of three.
 - World-model architecture, Dreamer version (if any), visual encoder (not required for numeric telemetry) and model capacity.
 - OOD parameter ranges and the nominal values for mass, inertia, thrust and gravity.
-- Target radius, touchdown thresholds, control rate and episode horizon.
+- KSP site, vehicle calibration and measured event semantics. Target radius, touchdown limits, control rate and episode horizon were [frozen on 2026-11-25](nominal-task-decisions.md).
 - GPU model and total compute budget.
 
 Until these are fixed, this document describes the intended protocol rather than a runnable experiment.
