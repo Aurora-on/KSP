@@ -97,6 +97,14 @@ rocks, and accepted it as the landing point for integration. This is a visual
 site check, not a reset or task validation; the target altitude/clearance
 reference and the three readiness flags remain open.
 
+The base snapshot had retracted landing legs. A gear-deployed candidate save,
+`Mun landing-candidate-140p5-100m-legs`, was created with the four
+`landingLeg1-2` legs deployed and `Control.gear=True`. After a fresh load it
+reported a surface altitude of 97.617 m, vertical speed -10.863 m/s and fuel
+5000.0 kg. Its SHA-256 was
+`f000663dce7a7a0cedb625086d0c08b3f58c759875b9a50e544b01adf5f5f866`.
+This is a candidate asset, not a task-grade initial state.
+
 Following the measurement, the team decided that `main_engine_fuel` is the
 total mass of the configured main-engine propellants in kg. For this craft the
 configured LiquidFuel and Oxidizer correspond to 5,000 kg. The adapter now sums
