@@ -8,6 +8,15 @@ At nominal thrust, uniform inertia multipliers of 2, 3 and 6 were the largest te
 
 At the candidate full-thrust acceleration ratio and nominal inertia, online landed safely in target 100/100 with either zero or one control step of delay. BC-only and the nominal script each timed out on all 100 starts in both cases. At the 25% thrust limit all three landed safely in target on every start, with and without delay. These are simulator results. The [transfer sensitivity report](../agent/docs/TRANSFER_SENSITIVITY.md) records the discrete torque brackets, KSP measurement requests, fuel proposal and preregistered zero-shot comparison.
 
+## 2026-11-26 — Main-engine fuel mass observation
+
+The adapter field `main_engine_fuel` was changed from one resource amount to the
+summed mass of `main_engine_fuel_resources` in kg. For the candidate craft the
+configured LiquidFuel and Oxidizer were 450 and 550 units, or 5,000 kg combined.
+A live read-only `observe()` returned `main_engine_fuel=5000.0` kg, and the
+opt-in live reset/step test passed. This is an interface check, not a landing
+validation; normalization remains `TBD`.
+
 ## 2026-11-25 — Debug-generated low-altitude snapshot
 
 `KSPEnv.create_initial_save` was exercised live from `Mun landing 1`. The

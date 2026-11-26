@@ -46,7 +46,7 @@ fields = [
 frame = "TBD"  # target-relative surface frame; define before adapter implementation
 units = "SI"
 normalization = "TBD"
-main_engine_fuel_resource = "TBD"  # craft-specific resource name; unit/normalization TBD
+main_engine_fuel_resources = ["LiquidFuel", "Oxidizer"]  # candidate craft; observed as total propellant mass in kg; normalization TBD
 body_to_task_rotation_xyzw = "TBD"  # fixed KSP body -> task body rotation
 diagnostic_only_fields = ["mass", "inertia_tensor"]
 

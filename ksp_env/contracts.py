@@ -111,8 +111,9 @@ class Observation:
     frame once that frame is fixed.  kRPC returns quaternions as
     ``(x, y, z, w)``.
 
-    ``main_engine_fuel`` is the configured main-engine resource amount.  Its
-    physical unit and normalization remain ``TBD`` until the lander is fixed.
+    ``main_engine_fuel`` is the remaining main-engine propellant mass in kg.
+    It is the sum of the configured ``main_engine_fuel_resources`` amounts
+    multiplied by each resource's density. Normalization remains ``TBD``.
     """
 
     position_m: Vector3
