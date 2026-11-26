@@ -133,11 +133,17 @@ most four times when the observed clearance or horizontal position missed the
 frozen envelope.
 
 All five saved snapshots reloaded with `verified=True`, four deployed landing
-legs and `gear=True`. Observed clearance ranged from 85.52 m to 117.61 m, and
-all five observed states were inside the frozen envelope. Four entries required
-a second attempt; one required one. The generated snapshots are
-`Mun landing-bank-140p5-v3-33-00` through `...-04`, and the ignored manifest is
-`reports/initial-state-bank-v3.json`.
+legs and `gear=True`. Observed clearance ranged from 89.46 m to 117.33 m, and
+all five observed states were inside the frozen envelope, including position,
+velocity, tilt and angular speed. One entry required one attempt, three required
+two and one required three. The generated snapshots are
+`Mun landing-bank-140p5-v4-33-00` through `...-04`, and the ignored manifest is
+`reports/initial-state-bank-v4.json`.
+
+The generator now corrects position, clearance and all three velocity
+components from observed error. If the observed attitude or angular speed is
+still outside the envelope it retries with a vertical fallback and zero angular
+velocity; the recorded observed state remains the source of truth.
 
 ## 2026-11-26 — Reset mechanism benchmark
 

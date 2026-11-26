@@ -176,6 +176,9 @@ def main() -> int:
             attempts = []
             try:
                 position_offset = [0.0, 0.0, 0.0]
+                velocity_offset = [0.0, 0.0, 0.0]
+                requested_body_z = state.body_z_direction
+                requested_angular = state.angular_velocity_rad_s
                 info = None
                 vessel = None
                 flight = None
@@ -189,9 +192,11 @@ def main() -> int:
                         state.clearance_m + args.altitude_offset_m + position_offset[2],
                     )
                     requested_velocity = (
-                        state.velocity_m_s[0],
-                        state.velocity_m_s[1],
-                        state.velocity_m_s[2] + args.vertical_velocity_offset_m_s,
+                        state.velocity_m_s[0] + velocity_offset[0],
+                        state.velocity_m_s[1] + velocity_offset[1],
+                        state.velocity_m_s[2]
+                        + args.vertical_velocity_offset_m_s
+                        + velocity_offset[2],
                     )
                     conn.space_center.load(args.base_save)
                     conn.krpc.paused = True
@@ -199,9 +204,9 @@ def main() -> int:
                         save_name,
                         position_m=requested_position,
                         velocity_m_s=requested_velocity,
-                        body_z_direction=state.body_z_direction,
+                        body_z_direction=requested_body_z,
                         roll_deg=state.roll_deg,
-                        angular_velocity_rad_s=state.angular_velocity_rad_s,
+                        angular_velocity_rad_s=requested_angular,
                         fill_resources=True,
                         verify=True,
                         overwrite=attempt > 0,
@@ -218,12 +223,29 @@ def main() -> int:
                         {
                             "attempt": attempt + 1,
                             "requested_position_m": list(requested_position),
+                            "requested_velocity_m_s": list(requested_velocity),
+                            "requested_body_z_direction": list(requested_body_z),
+                            "requested_angular_velocity_rad_s": list(requested_angular),
                             "observed_surface_altitude_m": observed_clearance,
                             "within_80_120_m": 80.0 <= observed_clearance <= 120.0,
                             "position_within_range": (
                                 envelope["checks"]["position_x"]
                                 and envelope["checks"]["position_y"]
                             ),
+                            "velocity_within_range": all(
+                                envelope["checks"][name]
+                                for name in (
+                                    "velocity_x",
+                                    "velocity_y",
+                                    "velocity_z",
+                                )
+                            ),
+                            "attitude_within_range": envelope["checks"][
+                                "attitude_tilt"
+                            ],
+                            "angular_within_range": envelope["checks"][
+                                "angular_speed"
+                            ],
                             "within_frozen_envelope": envelope[
                                 "within_frozen_envelope"
                             ],
@@ -234,6 +256,19 @@ def main() -> int:
                     position_offset[0] += state.position_m[0] - observed["position_m"][0]
                     position_offset[1] += state.position_m[1] - observed["position_m"][1]
                     position_offset[2] += state.clearance_m - observed_clearance
+                    velocity_offset[0] += (
+                        state.velocity_m_s[0] - observed["velocity_m_s"][0]
+                    )
+                    velocity_offset[1] += (
+                        state.velocity_m_s[1] - observed["velocity_m_s"][1]
+                    )
+                    velocity_offset[2] += (
+                        state.velocity_m_s[2] - observed["velocity_m_s"][2]
+                    )
+                    if not envelope["checks"]["attitude_tilt"]:
+                        requested_body_z = (0.0, 0.0, 1.0)
+                    if not envelope["checks"]["angular_speed"]:
+                        requested_angular = (0.0, 0.0, 0.0)
                 entry = {
                     "index": index,
                     "save_name": save_name,
@@ -241,6 +276,8 @@ def main() -> int:
                     "debug_request": {
                         "position_m": list(requested_position),
                         "velocity_m_s": list(requested_velocity),
+                        "body_z_direction": list(requested_body_z),
+                        "angular_velocity_rad_s": list(requested_angular),
                     },
                     "attempts": attempts,
                     "observed": observed,
@@ -274,6 +311,11 @@ def main() -> int:
                 }
                 report["errors"].append(f"{save_name}: {entry['error']}")
             entries.append(entry)
+            if entry.get("within_frozen_envelope") is False:
+                report["errors"].append(
+                    f"{save_name}: observed state outside the frozen envelope "
+                    "after retries"
+                )
             print(
                 f"[{index + 1}/{args.count}] {save_name}: "
                 f"clearance={entry.get('observed_surface_altitude_m')} m, "

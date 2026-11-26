@@ -187,7 +187,7 @@ def main() -> int:
     parser.add_argument("--config", default="configs/ksp_mun_test.toml")
     parser.add_argument("--base-save", default="Mun landing-candidate-140p5-100m-legs")
     parser.add_argument(
-        "--bank-save", default="Mun landing-bank-140p5-v3-33-00"
+        "--bank-save", default="Mun landing-bank-140p5-v4-33-00"
     )
     parser.add_argument("--count", type=int, default=5)
     parser.add_argument(

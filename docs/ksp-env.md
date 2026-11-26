@@ -148,8 +148,9 @@ velocity from the ranges in `configs/mun_landing.toml`; it does not touch KSP.
 `scripts/generate_initial_state_bank.py` applies sampled states to a base
 snapshot with kRPC `Debug`, saves named snapshots, reloads them and records
 requested versus observed state. Debug calls advance physics while setting a
-state, so the script uses an altitude offset and limited retry correction; the
-observed clearance is what the bank records. A successful run still means only
+state, so the script uses an altitude offset and limited retry correction for
+position, velocity and attitude/angular fallback; the observed state is what
+the bank records. A successful run still means only
 that the generation module works. It does not prove the distribution or reset
 acceptance.
 
@@ -175,7 +176,7 @@ apply. It restores the base snapshot and pauses at the end.
 ```sh
 .venv/bin/python scripts/benchmark_reset.py \
   --base-save "Mun landing-candidate-140p5-100m-legs" \
-  --bank-save "Mun landing-bank-140p5-v3-33-00" \
+  --bank-save "Mun landing-bank-140p5-v4-33-00" \
   --count 5 --output reports/reset-benchmark.json
 ```
 
