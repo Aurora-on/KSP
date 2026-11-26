@@ -165,6 +165,24 @@ Generated snapshots and the JSON manifest stay outside Git. Use
 `--prefix` to choose a separate bank and `--altitude-offset-m` /
 `--vertical-velocity-offset-m-s` to tune the Debug compensation.
 
+## Reset mechanism benchmark
+
+`scripts/benchmark_reset.py` compares named-save loads with an in-memory
+`Debug` reset. It records wall-clock time and observed state for repeated base
+loads, a fixed bank load, a single in-memory apply and an altitude-corrected
+apply. It restores the base snapshot and pauses at the end.
+
+```sh
+.venv/bin/python scripts/benchmark_reset.py \
+  --base-save "Mun landing-candidate-140p5-100m-legs" \
+  --bank-save "Mun landing-bank-140p5-v3-33-00" \
+  --count 5 --output reports/reset-benchmark.json
+```
+
+This is a measurement harness, not a task reset implementation. The observed
+state is always the source of truth; do not treat a requested `Debug` state as
+the episode start.
+
 ## Public API
 
 ```python

@@ -121,6 +121,27 @@ a second attempt; one required one. The generated snapshots are
 `Mun landing-bank-140p5-v3-33-00` through `...-04`, and the ignored manifest is
 `reports/initial-state-bank-v3.json`.
 
+## 2026-11-26 — Reset mechanism benchmark
+
+A five-repeat comparison measured named-save loads against an in-memory kRPC
+`Debug` reset on the candidate scene. The base snapshot loads took 5.667 s on
+average (range 5.642–5.685 s) and observed surface altitudes 97.155–97.402 m.
+The fixed bank snapshot loads took 5.787 s on average and observed altitudes
+102.668–102.778 m. Both were highly repeatable across five loads.
+
+One in-memory `Debug` apply took 6.463 s on average. With the 30 m altitude
+pre-compensation it landed at 127.967–128.232 m; with no compensation it landed
+below the target. The altitude-only correction loop needed four attempts per
+state and took 25.926 s per reset, still without correcting horizontal position
+or vertical velocity. This benchmark therefore does not support replacing
+named saves with the current in-memory path. Named-save loading is faster and
+more repeatable for the fixed bank. The in-memory path remains an option for
+training resets only if calibration and correction are redesigned and
+re-benchmarked.
+
+These are timing and mechanical checks, not task-grade reset acceptance.
+`reset_step_validated` remains `false`.
+
 This proves that the generation module runs and survives a load/save cycle. It
 does not establish the sampling distribution, bank size, split policy or
 task-grade reset acceptance; `initial_state_ready` remains `false`.
