@@ -154,6 +154,11 @@ the bank records. A successful run still means only
 that the generation module works. It does not prove the distribution or reset
 acceptance.
 
+KSP currently resets the vessel's angular velocity to zero when a save is
+loaded. A snapshot's requested angular velocity is therefore not retained. The
+bank records the zero observed value and treats this as KSP-specific behavior
+for now; it is not a match to the S3 angular-velocity distribution.
+
 ```sh
 .venv/bin/python scripts/generate_initial_state_bank.py \
   --base-save "Mun landing-candidate-140p5-100m-legs" \

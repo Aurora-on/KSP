@@ -51,6 +51,9 @@ Do not hide an autopilot or attitude controller inside the environment. If one i
 - Return Gymnasium-style `terminated` for task outcomes and `truncated` for time limits. Connection, reset and tick failures are infrastructure errors, not successful or failed landings.
 
 Implementation note: the core adapter uses Gymnasium-compatible `terminated`/`truncated` semantics but does not depend on the `gymnasium` package. A `gym.Env` wrapper is deferred until the reward, observation space and action space are fixed. The KSP adapter's current contact detector uses `Vessel.situation` and records pre-impact and contact samples; its test target frame is right-handed with `x=east, y=south, z=up`. A fixed `body_to_task_rotation_xyzw` maps the KSP craft body frame to the task body frame; it remains `TBD` for the final craft. The terrain/gear clearance reference and KSP damage mapping also remain `TBD`.
+ KSP `SpaceCenter.load` currently zeroes vessel angular velocity; this is a
+known KSP-specific reset deviation, not yet a change to the frozen S3
+angular-velocity distribution.
 
 ## 5. Safety, precision and failure
 

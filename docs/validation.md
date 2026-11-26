@@ -134,8 +134,11 @@ frozen envelope.
 
 All five saved snapshots reloaded with `verified=True`, four deployed landing
 legs and `gear=True`. Observed clearance ranged from 89.46 m to 117.33 m, and
-all five observed states were inside the frozen envelope, including position,
-velocity, tilt and angular speed. One entry required one attempt, three required
+position, velocity and tilt were inside the frozen envelope. KSP load resets the
+vessel angular velocity to zero, so the requested 0–0.05 rad/s values were not
+retained: the observed angular speed was about 1e-4 rad/s. This is accepted as
+KSP-specific behavior for now, and the bank does not claim to match the S3
+angular-velocity distribution. One entry required one attempt, three required
 two and one required three. The generated snapshots are
 `Mun landing-bank-140p5-v4-33-00` through `...-04`, and the ignored manifest is
 `reports/initial-state-bank-v4.json`.
