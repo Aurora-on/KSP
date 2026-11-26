@@ -16,7 +16,8 @@ from mun_lander.evaluation import generate_initial_states, validate_manifest
 from mun_agent import adapt as online
 from mun_agent.adapt import check_seed_partition, initialize_models
 from mun_agent.deterministic import DeterministicModel
-from mun_agent.imagination import Actor, Critic, update_actor_critic
+from mun_agent.imagination import (Actor, Critic, TouchdownMargin, first_touchdown_cost,
+                                   imagined_touchdown_margin, update_actor_critic)
 from mun_agent.interface import deterministic_spec
 from mun_agent.nominal import cheap_validation_manifest, collect_policy, evaluate_nominal
 from mun_agent.policy import policy_checkpoint
@@ -132,6 +133,52 @@ def test_cheap_selector_and_budget_categories():
         budget.record(kind, episodes, steps)
     assert asdict(budget) == dict(train_episodes=12, train_transitions=2260, heldout_episodes=50,
                                   cheap_episodes=20, full_episodes=100)
+
+
+def test_margin_uses_incoming_vector_speed_and_only_first_predicted_contact():
+    margin = TouchdownMargin(speed_m_s=1., cost_per_m_s=10.)
+    # All three rows start supported; lift off, land, lift off and land again.
+    seen = torch.zeros(3, dtype=torch.bool)
+    velocity = torch.tensor([[.03, .04, 0.], [0., 0., -.02], [0., -.01, 0.]], requires_grad=True)
+    for i, (ground, next_ground) in enumerate([(1, 1), (1, 0), (0, 0), (0, 1), (1, 0), (0, 1)]):
+        state = torch.zeros(3, 18)
+        state[:, 16] = ground
+        state[:, 3:6] = velocity
+        following = torch.zeros_like(state)
+        following[:, 16] = next_ground
+        cost, seen = first_touchdown_cost(state, following, seen, 50., margin)
+        expected = [15., 0., 0.] if i == 3 else [0., 0., 0.]
+        torch.testing.assert_close(cost, torch.tensor(expected))
+        if i == 3:
+            cost[0].backward()
+            torch.testing.assert_close(velocity.grad[0], torch.tensor([300., 400., 0.]))
+
+
+def test_margin_context_first_landing_after_liftoff_and_default_restoration(monkeypatch):
+    # Exercise update_actor_critic itself with controlled contact times and
+    # zero base rewards, so its imagined return isolates the first impact.
+    def rollout():
+        policy, critic, model = initialize_models(example_checkpoint())
+        starts = torch.zeros(1, 18)
+        starts[:, 16] = 1.
+        starts[:, 3] = 2. / model.spec["scales"]["velocity"]
+        ground = iter([1, 0, 1, 0, 1])
+        def step(state, action):
+            following = state.clone()
+            following[:, 16] = next(ground)
+            # A zero-valued edge lets backward run also in the no-penalty arm.
+            return following, None, action[:, 0]
+        monkeypatch.setattr(model, "step", step)
+        import mun_agent.imagination as imagination
+        monkeypatch.setattr(imagination, "task_reward", lambda s, a, nxt, p, spec:
+                            (0 * a[:, 0], torch.ones_like(a[:, 0])))
+        return update_actor_critic(model, policy.actor, critic, starts,
+                                   torch.optim.Adam(policy.actor.parameters()), torch.optim.Adam(critic.parameters()),
+                                   horizon=5, gamma=.5, actor_terminal_value=False)["imagined_return"]
+    base = rollout()
+    with imagined_touchdown_margin(TouchdownMargin(1., 10.)):
+        assert rollout() == base - .5**2 * 10.
+    assert rollout() == base == 0.
 
 
 @pytest.mark.parametrize("frozen", [True, False])

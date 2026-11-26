@@ -6,7 +6,7 @@ from pathlib import Path
 import torch
 
 from mun_agent import nominal
-from mun_agent.adapt import CHECKPOINT_SHA, MANIFEST_SHA, OnlineInputs, SEEDS, _cohort, _evaluate, _g1, run_a1, run_online
+from mun_agent.adapt import CHECKPOINT_SHA, MANIFEST_SHA, PREFILL_SHA, OnlineInputs, SEEDS, _cohort, _evaluate, _g1, run_a1, run_online
 from mun_agent.dataset import file_hash, load_dataset
 from mun_agent.policy import load_policy
 from mun_agent.train import _write_json
@@ -76,6 +76,61 @@ def _cohort_options(parser):
                         help="three P1/fallback summary.json files, one per seed")
 
 
+def run_c(out, main_summaries, fallback_summaries, resume=False):
+    """Repeat source S3 with only the first-contact imagination penalty changed."""
+    from dataclasses import asdict
+    from mun_agent.imagination import TouchdownMargin, imagined_touchdown_margin
+    from mun_agent.train import train_policy
+    from transfer_sensitivity import conditions, evaluate_pair, summarize, IDENTITIES
+
+    if _cohort(main_summaries, "main"):
+        passed = main_summaries
+    elif _cohort(fallback_summaries, "fallback"):
+        passed = fallback_summaries
+    else:
+        raise ValueError("C requires a passing three-seed P1 cohort")
+    prefill = DATA / "s3-nominal-prefill"
+    validation = DATA / "s3-validation.json"
+    model_path = AGENT / "runs/s1-contact-seed31/best.pt"
+    bc = CHECKPOINT.with_name("bc-only.pt")
+    base = torch.load(CHECKPOINT, map_location="cpu", weights_only=True)
+    config = read_json(AGENT / "configs/s3_nominal.json")
+    manifest = nominal.load_manifest(validation, "validation")
+    _, meta = load_dataset(prefill)
+    if (file_hash(CHECKPOINT) != CHECKPOINT_SHA or config != base["provenance"]["config"]
+            or file_hash(bc) != IDENTITIES["bc_only"]
+            or meta["replay_sha256"] != PREFILL_SHA or manifest["sha256"] != MANIFEST_SHA["validation"]
+            or file_hash(model_path) != base["provenance"]["pretrained_sha256"]):
+        raise ValueError("C requires the original S3 seed-33 recipe, S1 model, prefill and validation starts")
+    margin = TouchdownMargin(speed_m_s=1., cost_per_m_s=10.)
+    config = dict(config, imagined_first_touchdown_margin=asdict(margin))
+    with imagined_touchdown_margin(margin):
+        training = train_policy(config, prefill, model_path, validation, out, seed=33, device="cpu", resume=resume)
+    if not training["completed_fixed_iterations"]:
+        raise ValueError("C did not complete its prescribed 24 rounds")
+
+    selected = out / "checkpoints/best.pt"
+    catalog = conditions()
+    results = {}
+    for name in ("nominal", "inertia_2.5", "inertia_3", "inertia_4"):
+        results[name] = {}
+        for label, controller, checkpoint in (("C", "online", selected), ("v1", "online", CHECKPOINT),
+                                              ("BC", "bc_only", bc)):
+            episodes = evaluate_pair(catalog[name], controller, manifest["starts"], checkpoint, bc)
+            _write_json(out / f"{name}-{label}.json", episodes)
+            results[name][label] = summarize(episodes)
+    impact = results["nominal"]["C"]["mean_touchdown_speed_m_s"]
+    decision = dict(nominal_precision=(results["nominal"]["C"]["safe_count"] >= 99
+                                       and results["nominal"]["C"]["safe_in_target_count"] >= 95),
+                    nominal_impact_speed=impact is not None and impact <= 1.,
+                    inertia_transfer=(results["inertia_3"]["C"]["safe_count"] >= 86
+                                      and results["inertia_4"]["C"]["safe_count"] >= 46))
+    _write_json(out / "decision.json", dict(seed=33, margin=asdict(margin), best_iteration=training["best_iteration"],
+                selected_checkpoint_sha256=file_hash(selected), validation_sha256=manifest["sha256"],
+                p1_gate=[dict(path=str(p), sha256=file_hash(p)) for p in passed],
+                criteria=decision, recommend=all(decision.values()), results=results))
+
+
 def run_g1(checkpoint, validation_path, destination):
     """Independently reproduce the frozen P1 start before any online training."""
     manifest = nominal.load_manifest(validation_path, "validation")
@@ -119,7 +174,14 @@ def main():
     test.add_argument("--out", required=True, type=Path, help="the completed selected run directory")
     test.add_argument("--test", type=Path, default=DATA / "s3-test.json")
     _cohort_options(test)
+    margin = commands.add_parser("c", help="train the gated source-domain first-touchdown margin experiment")
+    _cohort_options(margin)
+    margin.add_argument("--out", default=RUNS / "c", type=Path)
+    margin.add_argument("--resume", action="store_true")
     args = parser.parse_args()
+    if args.stage == "c":
+        run_c(args.out, args.p1_main, args.p1_fallback, args.resume)
+        return
     if args.stage == "g1":
         run_g1(args.checkpoint, args.validation, args.out)
         return

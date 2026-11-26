@@ -1,5 +1,7 @@
 """Pathwise actor gradients and lambda-return value fitting on frozen model rollouts."""
 from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 import math
 
 import torch
@@ -7,6 +9,37 @@ from torch import nn
 
 from .deterministic import mlp
 from .task_reward import task_reward
+
+
+@dataclass(frozen=True)
+class TouchdownMargin:
+    speed_m_s: float
+    cost_per_m_s: float
+
+    def __post_init__(self):
+        if not all(math.isfinite(x) and x >= 0 for x in (self.speed_m_s, self.cost_per_m_s)):
+            raise ValueError("touchdown margin speed and cost must be finite and nonnegative")
+
+
+_training_margin = ContextVar("imagined_touchdown_margin", default=None)
+
+
+@contextmanager
+def imagined_touchdown_margin(margin):
+    """Supply a run-local option to the existing S3 trainer."""
+    token = _training_margin.set(margin)
+    try:
+        yield
+    finally:
+        _training_margin.reset(token)
+
+
+def first_touchdown_cost(state, following, seen, velocity_scale, margin):
+    """Charge the first airborne-to-supported transition at the incoming 3-D speed."""
+    impact = (~seen) & (state[..., 16] == 0) & (following[..., 16] > 0)
+    speed = torch.linalg.vector_norm(state[..., 3:6], dim=-1) * velocity_scale
+    cost = margin.cost_per_m_s * (speed - margin.speed_m_s).clamp_min(0)
+    return torch.where(impact, cost, 0.), seen | impact
 
 
 def yaw_canonical_state(state):
@@ -105,7 +138,8 @@ def lambda_returns(rewards, continuations, values, gamma=.997, lam=.95):
 
 def update_actor_critic(model, actor, critic, starts, actor_optimizer, critic_optimizer, *,
                         horizon=32, gamma=.997, lam=.95, critic_epochs=2,
-                        actor_terminal_value=True, imagination_horizontal_cost_multiplier=1.0):
+                        actor_terminal_value=True, imagination_horizontal_cost_multiplier=1.0,
+                        touchdown_margin=None):
     """Optimize imagined rewards, with optional actor bootstrap, then fit critic λ-returns."""
     if (type(horizon) is not int or horizon < 1 or type(critic_epochs) is not int or critic_epochs < 1
             or starts.ndim != 2 or starts.shape[1] != 18 or not len(starts)):
@@ -113,6 +147,10 @@ def update_actor_critic(model, actor, critic, starts, actor_optimizer, critic_op
     if not 0 <= gamma <= 1 or not 0 <= lam <= 1:
         raise ValueError("gamma and lambda must lie in [0, 1]")
     state = starts.detach()
+    margin = touchdown_margin if touchdown_margin is not None else _training_margin.get()
+    # Count only transitions predicted inside this rollout. Starting on the
+    # ground costs nothing; a subsequent liftoff and landing qualifies once.
+    seen_touchdown = torch.zeros_like(state[:, 16], dtype=torch.bool) if margin is not None else None
     survival = torch.ones_like(state[:, 0])
     states = [state]
     rewards, continues, weights = [], [], []
@@ -126,6 +164,10 @@ def update_actor_critic(model, actor, critic, starts, actor_optimizer, critic_op
                 distance = torch.linalg.vector_norm(following[..., :2], dim=-1) * model.spec["scales"]["position"]
                 extra_cost = (imagination_horizontal_cost_multiplier - 1) * model.spec["source_config"]["reward"]["horizontal_cost"]
                 reward = reward - extra_cost * distance * model.spec["control_dt"]
+            if margin is not None:
+                cost, seen_touchdown = first_touchdown_cost(
+                    state, following, seen_touchdown, model.spec["scales"]["velocity"], margin)
+                reward = reward - cost
             trajectory_return = trajectory_return + gamma**t * survival * reward
             weights.append(survival.detach())
             rewards.append(reward.detach())
