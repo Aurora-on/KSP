@@ -58,6 +58,79 @@ about 0.45 m/s but was still airborne at 5.4 m after 60 steps, with tilt driftin
 to about 8° because no attitude controller was active. The snapshot was restored
 and the game left paused; no safe landing or task-level validation is claimed.
 
+## 2026-11-25 — Candidate scene measurement
+
+The existing `两级着陆器` and the equatorial point at latitude 0° and longitude
+139.70616° were measured as the candidate craft and site. The initial pass was
+read-only: it sent no controls and did not save or load the game. A separate
+terrain check moved the craft out of the ray path with kRPC `Debug`, measured
+the target, and then restored the candidate save.
+
+The active craft reported 11,460 kg wet mass, 6,060 kg dry mass and 5,400 kg
+of resources. Its four active `liquidEngine3.v2` engines consume LiquidFuel and
+Oxidizer; their summed vacuum thrust is 240,000 N at Isp 345 s. The remaining
+main-engine part and four separation motors were inactive. The available
+LiquidFuel/Oxidizer was 450/550 units, or 2,250/2,750 kg; Monopropellant was 40
+units (160 kg) and SolidFuel 32 units (240 kg). Principal moments were
+18,760.8, 20,964.0 and 18,052.6 kg·m².
+
+A 5 m terrain grid around the target, measured with the craft out of the ray
+path, gave a fitted slope of 6.425°, terrain height at the target of -0.076 m
+and an RMS residual of 0.054 m. A wider check found the terrain rising to about
+100 m within 10 m to the north, so the point is next to a steep rise rather
+than on an unqualified flat site. The craft used for the base snapshot reported
+80.852 m surface altitude. The configured target altitude is still 0 m, and the
+clearance reference remains `TBD`.
+
+A coarse 151-point scan along the equator from longitude 139.0° to 140.5° found
+the lowest 5 m-grid slope at latitude 0°, longitude 140.5°: 2.623°, with 1.23 m
+of 10 m-grid relief. This is a replacement candidate for follow-up, not an
+accepted site.
+
+A 110 m target-frame base save (`Mun landing-candidate-100m`) was also created
+and verified at the first candidate; the debug calls advanced the state, so the
+observed surface altitude was 80.852 m rather than the requested value. It is a
+candidate asset, not a task-grade initial state.
+
+## 2026-11-26 — Replacement candidate site check
+
+The project lead selected latitude 0°, longitude 140.5° as the replacement
+candidate site. With the craft moved out of the ray path, the fitted slopes
+were 2.630° on a 5 m grid, 2.574° on a 10 m grid and 2.229° on a 20 m grid. The
+5 m-grid RMS residual was 0.061 m; the 10 m-grid height range was 1.23 m. No
+cliff comparable to the first candidate appeared in the sampled grids. The
+normative target position is now recorded as `[0.0, 140.5, 0.0]`; the target
+frame and clearance reference still need decisions, and repeatable reset
+acceptance remains open.
+
+A 110 m target-frame base save (`Mun landing-candidate-140p5-100m`) was created
+and verified at the replacement point. The debug calls advanced the state, so
+the observed position was 81.22 m above the target datum, the surface altitude
+was 81.224 m and the vertical speed was -10.3005 m/s. Fuel was 5000.0 kg, the
+save was verified, and its SHA-256 was
+`00296a95ca3cb8e7e7b7e0cdc6a10e9aa3b9c7bf6a2d0e30f97889eb23891843`.
+This is still a candidate asset, not a task-grade initial state. The project
+lead also inspected the replacement point in the running game and found no
+rocks, and accepted it as the landing point for integration. This is a visual
+site check, not a reset or task validation; the target frame, clearance
+reference and the three readiness flags remain open.
+
+The base snapshot had retracted landing legs. A gear-deployed candidate save,
+`Mun landing-candidate-140p5-100m-legs`, was created with the four
+`landingLeg1-2` legs deployed and `Control.gear=True`. After a fresh load it
+reported a surface altitude of 97.617 m, vertical speed -10.863 m/s and fuel
+5000.0 kg. Its SHA-256 was
+`f000663dce7a7a0cedb625086d0c08b3f58c759875b9a50e544b01adf5f5f866`.
+This is a candidate asset, not a task-grade initial state.
+
+Following the measurement, the team decided that `main_engine_fuel` is the
+total mass of the configured main-engine propellants in kg. For this craft the
+configured LiquidFuel and Oxidizer correspond to 5,000 kg. The adapter now sums
+amount × density; a live read-only `observe()` of the loaded candidate returned
+`main_engine_fuel=5000.0` kg. The opt-in live reset/step test also passed with
+the new field. Normalization and the target clearance reference remain `TBD`. This is candidate measurement
+evidence, not a frozen task scene; the three readiness flags remain `false`.
+
 ## 2026-11-25 — Integrated contact and snapshot check
 
 The fixed-frame, snapshot and contact work was rebased onto the game-time
@@ -81,7 +154,7 @@ provisional contact/stability state. Offline tests use a fake kRPC transport:
 the 10 Hz case advances five 0.02 s ticks, records `dt_s = 0.1`, detects the
 first `landed` transition, takes impact metrics from the preceding airborne
 sample, completes a stable window, and classifies unsafe contact, liftoff,
-timeout and vessel loss. The kRPC-enabled `.venv` root suite ran 53 cases with
+timeout and vessel loss. The kRPC-enabled `.venv` root suite ran 57 cases with
 two opt-in live checks skipped; an interpreter without kRPC also skips the
 thirteen step/snapshot cases. The simulator suite passed 61 with one skip and
 the agent suite passed 97 with one skip.
@@ -93,7 +166,7 @@ returned the `两级着陆器` in Flight, and one zero-action step advanced UT f
 measured `dt_s` was `0.09999999999990905` s for the configured 0.1 s interval.
 The vessel remained `orbiting`, `contact=False`, `status="flying"`,
 `surface_altitude_m=12633.5`, `tilt_deg=82.739`, `angular_speed_rad_s=0.0000849`
-and `main_engine_fuel=450.0`; no staging was used and `close()` neutralized the
+and `main_engine_fuel=450.0` under the previous resource-unit field (the current field reports kg); no staging was used and `close()` neutralized the
 controls. This is live control-interval evidence only. Live touchdown detection
 is still pending because the available Mun save is an orbit at about 12.6 km,
 not a descent snapshot. The earlier 2026-11-18 live evidence covers the previous

@@ -36,6 +36,7 @@ class TaskConfigTests(unittest.TestCase):
     def test_approved_nominal_task_values(self):
         scenario, safety = self.config["scenario"], self.config["safety"]
         self.assertEqual((scenario["control_hz"], scenario["episode_horizon_s"]), (10.0, 90.0))
+        self.assertEqual(scenario["target_position"], [0.0, 140.5, 0.0])
         self.assertEqual(scenario["descent_altitude_m"], [80.0, 120.0])
         for axis in ("x", "y"):
             self.assertEqual(scenario["initial_position_range"][axis + "_m"], [-30., 30.])
@@ -56,7 +57,6 @@ class TaskConfigTests(unittest.TestCase):
 
     def test_unresolved_numbers_remain_explicitly_tbd(self):
         self.assertEqual(self.config["scenario"]["save_name"], "TBD")
-        self.assertEqual(self.config["scenario"]["target_position"], "TBD")
         self.assertEqual(self.config["evaluation"]["ood_ranges"], "TBD")
         self.assertEqual(self.config["observation"]["normalization"], "TBD")
         self.assertEqual(self.config["observation"]["body_to_task_rotation_xyzw"], "TBD")

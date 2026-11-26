@@ -3,7 +3,8 @@
 #
 # It exercises the live adapter against saves/Munar landing/Mun landing 1.sfs:
 # target-relative observation, one fixed control interval and named-save reset.
-# The target is the sub-satellite point of the saved orbit, not a frozen final site.
+# The target is the accepted candidate equatorial landing point for KSP
+# integration, not a frozen final task site.
 status = "adapter_test_only"
 task = "transport_adapter_test"
 target_body = "Mun"
@@ -28,7 +29,7 @@ craft = "两级着陆器"
 save_name = "Mun landing 1"
 randomize_initial = []
 descent_altitude_m = 15251.4
-target_position = [0.0, 139.70616, 0.0]
+target_position = [0.0, 140.5, 0.0]
 initial_position_range = "fixed_test_reset"
 initial_velocity_range = "fixed_test_reset"
 initial_attitude_range = "fixed_test_reset"
