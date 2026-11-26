@@ -123,6 +123,56 @@ reported a surface altitude of 97.617 m, vertical speed -10.863 m/s and fuel
 `f000663dce7a7a0cedb625086d0c08b3f58c759875b9a50e544b01adf5f5f866`.
 This is a candidate asset, not a task-grade initial state.
 
+## 2026-11-26 — Initial-state bank smoke test
+
+The initial-state sampler was exercised live from
+`Mun landing-candidate-140p5-100m-legs` with seed 33 and five states. The
+sampler uses the frozen position, velocity, attitude and angular-velocity
+ranges; the live wrapper applied each state with kRPC `Debug` and retried at
+most four times when the observed clearance or horizontal position missed the
+frozen envelope.
+
+All five saved snapshots reloaded with `verified=True`, four deployed landing
+legs and `gear=True`. Observed clearance ranged from 89.46 m to 117.33 m, and
+position, velocity and tilt were inside the frozen envelope. KSP load resets the
+vessel angular velocity to zero, so the requested 0–0.05 rad/s values were not
+retained: the observed angular speed was about 1e-4 rad/s. This is accepted as
+KSP-specific behavior for now, and the bank does not claim to match the S3
+angular-velocity distribution. One entry required one attempt, three required
+two and one required three. The generated snapshots are
+`Mun landing-bank-140p5-v4-33-00` through `...-04`, and the ignored manifest is
+`reports/initial-state-bank-v4.json`.
+
+The generator now corrects position, clearance and all three velocity
+components from observed error. If the observed attitude or angular speed is
+still outside the envelope it retries with a vertical fallback and zero angular
+velocity; the recorded observed state remains the source of truth.
+
+## 2026-11-26 — Reset mechanism benchmark
+
+A five-repeat comparison measured named-save loads against an in-memory kRPC
+`Debug` reset on the candidate scene. The base snapshot loads took 5.667 s on
+average (range 5.642–5.685 s) and observed surface altitudes 97.155–97.402 m.
+The fixed bank snapshot loads took 5.787 s on average and observed altitudes
+102.668–102.778 m. Both were highly repeatable across five loads.
+
+One in-memory `Debug` apply took 6.463 s on average. With the 30 m altitude
+pre-compensation it landed at 127.967–128.232 m; with no compensation it landed
+below the target. The altitude-only correction loop needed four attempts per
+state and took 25.926 s per reset, still without correcting horizontal position
+or vertical velocity. This benchmark therefore does not support replacing
+named saves with the current in-memory path. Named-save loading is faster and
+more repeatable for the fixed bank. The in-memory path remains an option for
+training resets only if calibration and correction are redesigned and
+re-benchmarked.
+
+These are timing and mechanical checks, not task-grade reset acceptance.
+`reset_step_validated` remains `false`.
+
+This proves that the generation module runs and survives a load/save cycle. It
+does not establish the sampling distribution, bank size, split policy or
+task-grade reset acceptance; `initial_state_ready` remains `false`.
+
 Following the measurement, the team decided that `main_engine_fuel` is the
 total mass of the configured main-engine propellants in kg. For this craft the
 configured LiquidFuel and Oxidizer correspond to 5,000 kg. The adapter now sums
@@ -154,7 +204,7 @@ provisional contact/stability state. Offline tests use a fake kRPC transport:
 the 10 Hz case advances five 0.02 s ticks, records `dt_s = 0.1`, detects the
 first `landed` transition, takes impact metrics from the preceding airborne
 sample, completes a stable window, and classifies unsafe contact, liftoff,
-timeout and vessel loss. The kRPC-enabled `.venv` root suite ran 57 cases with
+timeout and vessel loss. The kRPC-enabled `.venv` root suite ran 61 cases with
 two opt-in live checks skipped; an interpreter without kRPC also skips the
 thirteen step/snapshot cases. The simulator suite passed 61 with one skip and
 the agent suite passed 97 with one skip.
