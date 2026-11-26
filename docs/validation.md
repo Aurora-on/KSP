@@ -91,7 +91,11 @@ the observed position was 81.22 m above the target datum, the surface altitude
 was 81.224 m and the vertical speed was -10.3005 m/s. Fuel was 5000.0 kg, the
 save was verified, and its SHA-256 was
 `00296a95ca3cb8e7e7b7e0cdc6a10e9aa3b9c7bf6a2d0e30f97889eb23891843`.
-This is still a candidate asset, not a task-grade initial state.
+This is still a candidate asset, not a task-grade initial state. The project
+lead also inspected the replacement point in the running game and found no
+rocks, and accepted it as the landing point for integration. This is a visual
+site check, not a reset or task validation; the target altitude/clearance
+reference and the three readiness flags remain open.
 
 Following the measurement, the team decided that `main_engine_fuel` is the
 total mass of the configured main-engine propellants in kg. For this craft the

@@ -14,6 +14,11 @@ These are candidate measurements, not frozen task values: the target
 altitude/clearance reference, actuator calibration and named descent save
 remain open.
 
+The project lead inspected the replacement point in the running game on
+2026-11-26 and found no rocks; it is accepted as the landing point for KSP
+integration. The normative `target_position` remains `TBD` until the target
+altitude and clearance reference are recorded.
+
 ## Main-engine fuel observation (2026-11-26)
 
 The project lead decided that `main_engine_fuel` is the total mass of the
