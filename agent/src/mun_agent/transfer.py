@@ -1,8 +1,17 @@
-"""Observation transforms for evaluating a frozen policy on another vehicle."""
+"""Simulator target domains and observation transforms for transfer evaluations."""
 import math
 from numbers import Real
 
 import numpy as np
+from mun_lander import SimConfig
+
+
+def target_config(domain: str) -> SimConfig:
+    """Change only vehicle inertia, leaving task, reset and policy transforms unchanged."""
+    scales = {"P1": 4.0, "P2": 0.75 / 0.07}
+    if domain not in scales:
+        raise ValueError(f"unknown simulator target domain {domain!r}; expected P1 or P2")
+    return SimConfig().perturbed("inertia", scales[domain])
 
 
 def rescale_fuel(obs, *, source_capacity_kg, target_capacity_kg):

@@ -1,0 +1,16 @@
+{
+  "train_episodes": 30,
+  "heldout_episodes": 50,
+  "noise_std": 0.15,
+  "collection_seeds": {
+    "P1": {"train": 4101, "heldout": 4102},
+    "P2": {"train": 4201, "heldout": 4202}
+  },
+  "fit_seed": 33,
+  "cpu_threads": 2,
+  "batch_size": 128,
+  "recipes": [
+    {"name": "main", "lr": 0.0001, "updates": 1000, "source_fraction": 0.5},
+    {"name": "fallback", "lr": 0.0003, "updates": 3000, "source_fraction": 0.2}
+  ]
+}

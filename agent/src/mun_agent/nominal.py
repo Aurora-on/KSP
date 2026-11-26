@@ -1,5 +1,7 @@
 """Fixed nominal 6DOF simulator starts, full-action collection and evaluation."""
+import hashlib
 import json
+from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
 
@@ -45,6 +47,26 @@ def load_manifest(path, split):
     return manifest
 
 
+def manifest_prefix(manifest, count):
+    """Verify the original start list and sign an independent prefix with its parent digest."""
+    validate_manifest(manifest)
+    if type(count) is not int or not 1 <= count <= len(manifest["starts"]):
+        raise ValueError("prefix size must be an integer within the manifest")
+    prefix = deepcopy({key: value for key, value in manifest.items() if key not in ("starts", "sha256")})
+    prefix["starts"] = deepcopy(manifest["starts"][:count])
+    prefix["source_manifest_sha256"] = manifest["sha256"]
+    prefix["sha256"] = hashlib.sha256(json.dumps(prefix, sort_keys=True).encode()).hexdigest()
+    return prefix
+
+
+def cheap_validation_manifest(manifest):
+    """Use validation-2026-000000 through 000019 from the full audited validation bank."""
+    _check_manifest(manifest, "validation")
+    if manifest["seed"] != 2026 or len(manifest["starts"]) != 100:
+        raise ValueError("cheap validation requires the full 100-entry seed-2026 validation manifest")
+    return manifest_prefix(manifest, 20)
+
+
 def prepare_manifest(path, split, *, seed=2026, episodes=100):
     """Publish once. The saved manifest's checksum travels with it across platforms."""
     if split not in ("test", "validation"):
@@ -56,9 +78,9 @@ def prepare_manifest(path, split, *, seed=2026, episodes=100):
     return manifest
 
 
-def collect_policy(policy, *, seed, episodes, noise_std=.1):
-    manifest = generate_initial_states(SimConfig(), episodes, seed, "train")
-    return collect_from_manifest(policy, manifest, noise_std=noise_std)
+def collect_policy(policy, *, seed, episodes, noise_std=.1, config=SimConfig()):
+    manifest = generate_initial_states(config, episodes, seed, "train")
+    return collect_from_manifest(policy, manifest, noise_std=noise_std, config=config)
 
 
 def _touchdown_summary(episodes):
@@ -75,9 +97,9 @@ def _touchdown_summary(episodes):
     return result
 
 
-def evaluate_nominal(policy, manifest):
+def evaluate_nominal(policy, manifest, *, config=SimConfig()):
     _check_manifest(manifest, manifest["split"])
-    result = evaluate(SimConfig(), manifest, policy)
+    result = evaluate(config, manifest, policy)
     episodes = result["episodes"]
     result.update(_touchdown_summary(episodes))
     result.update(mean_return=float(np.mean([ep["return"] for ep in episodes])),

@@ -51,14 +51,14 @@ class AppliedPolicy:
         return self.action_transform(action) if self.action_transform else action
 
 
-def collect_from_manifest(policy, manifest, *, noise_std=.1, action_transform=None):
+def collect_from_manifest(policy, manifest, *, noise_std=.1, action_transform=None, config=SimConfig()):
     """Collect current-policy transitions using independent internal-coordinate action noise."""
     if not np.isfinite(noise_std) or noise_std < 0:
         raise ValueError("noise_std must be finite and nonnegative")
     seed, episodes = manifest["seed"], len(manifest["starts"])
     if manifest["split"] != "train":
         raise ValueError("online collection requires training starts")
-    env = LanderEnv(SimConfig())
+    env = LanderEnv(config)
     collected, rows = [], []
     try:
         for start in manifest["starts"]:

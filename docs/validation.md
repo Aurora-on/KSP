@@ -1,5 +1,11 @@
 # Validation record
 
+## 2026-11-26 — Simulator-to-simulator adaptation
+
+The frozen S3 seed-33 round-22 policy reproduced 36 safe and 27 safe in-target landings on the 100 P1 validation starts, with mean return −36.3491. P1 used four times the nominal inertia. P2 used an inertia multiplier of 0.75/0.07. For each domain the same frozen policy with action noise collected 30 training and 50 separate held-out episodes.
+
+On P1, the unadapted world model missed all four S1 gates. The primary 1,000-update fit passed W4 (50/50 terminal events) and W5 (45/50 terminal-window returns). It missed W1 and W2. The 3,000-update fallback gave 1.018° mean absolute tilt error at 15 steps and 0.217 m/s velocity error near the ground, above the 1° and 0.2 m/s limits. It missed five crashes (45/50 events) and met the return tolerance in 42/50 episodes. Its first 20 held-out episodes passed W1, W2 and W5, while the full 50 passed none. P2 passed none under either recipe. The A1 stop rule ended formal evaluation before online policy adaptation, the frozen-model control, the P2 online stress test or the source-domain safety-margin experiment. [Methods, gate tables and interaction counts](../agent/docs/ADAPTATION.md)
+
 ## 2026-11-26 — Source-domain transfer sensitivity
 
 Using the 100 frozen **validation** starts, CPU revision `86465b4` evaluated 120 controller–condition pairs (12,000 episodes). Nominal online, BC-only and nominal scripted controllers each landed safely in target 100 times. Their mean returns reproduced 93.3988, 92.0332 and 92.1085. All 1,100 repeated episode records matched. Fuel-fraction conversion restored nominal outcome counts for all three, with a maximum absolute mean-return difference of 3.21e-8 (rounded).
