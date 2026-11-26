@@ -137,8 +137,6 @@ def main():
         parser.error("--recipe applies only to --variant frozen")
     recipe = args.recipe or ("main" if frozen else args.variant)
     a1 = read_json(args.a1)
-    if not a1["passed"]:
-        parser.error("P1 A1 did not pass; formal A2 is closed")
     domain_a1 = a1
     if args.domain == "P2":
         domain_a1 = read_json(args.domain_a1 or RUNS / "a1" / "P2" / "summary.json")

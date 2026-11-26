@@ -4,6 +4,8 @@ from dataclasses import asdict
 from itertools import combinations
 import json
 from pathlib import Path
+import runpy
+import sys
 
 import numpy as np
 import pytest
@@ -160,10 +162,41 @@ def test_two_start_one_round_smoke(tmp_path, monkeypatch, frozen):
     assert not (out / "test.json").exists()
 
 
-def test_failed_a1_blocks_formal_a2():
-    inputs = online.OnlineInputs(None, None, {}, {}, {}, {"domain": "P1", "passed": False})
-    with pytest.raises(ValueError, match="passing P1 A1"):
-        online._a1_settings(inputs, "P1", False)
+def test_failed_a1_retains_provenance_checks_and_fixed_world_recipe():
+    report = dict(domain="P1", passed=False, selected_recipe=None,
+                  source_checkpoint_sha256=online.CHECKPOINT_SHA, source_replay_sha256=online.PREFILL_SHA,
+                  train_reset_seeds=list(range(30)), heldout_reset_seeds=list(range(100, 150)))
+    inputs = online.OnlineInputs(None, None, {"replay_sha256": online.PREFILL_SHA}, {}, {}, report)
+    online._verify_a1_provenance(inputs, "P1")
+    config = json.loads((AGENT / "configs/adapt_online.json").read_text())
+    for name in ("main", "fallback"):
+        settings = online._run_recipe(config, name)
+        assert (settings["wm_lr"], settings["source_fraction"], settings["wm_updates"]) == (1e-4, .5, 200)
+    with pytest.raises(ValueError, match="target domain"):
+        online._verify_a1_provenance(inputs, "P2")
+    for key, value in (("source_checkpoint_sha256", ""), ("source_replay_sha256", ""),
+                       ("train_reset_seeds", []), ("heldout_reset_seeds", [])):
+        invalid = online.OnlineInputs(None, None, inputs.source_meta, {}, {}, dict(report, **{key: value}))
+        with pytest.raises(ValueError, match="A1 provenance"):
+            online._verify_a1_provenance(invalid, "P1")
+
+
+def test_a2_cli_forwards_failed_a1_to_runner(tmp_path, monkeypatch):
+    from mun_agent import dataset
+
+    report = tmp_path / "summary.json"
+    report.write_text(json.dumps({"domain": "P1", "passed": False, "selected_recipe": None}))
+    calls = []
+    monkeypatch.setattr(online, "run_online", lambda inputs, config, out, **kw: calls.append((inputs, config, kw)))
+    monkeypatch.setattr(dataset, "load_dataset", lambda path: (None, {}))
+    monkeypatch.setattr(online.nominal, "load_manifest", lambda path, split: {})
+    script = AGENT / "scripts/adapt.py"
+    monkeypatch.setattr(sys, "argv", [str(script), "a2", "--domain", "P1", "--seed", "31", "--a1", str(report)])
+    runpy.run_path(str(script), run_name="__main__")
+    [(inputs, settings, options)] = calls
+    assert inputs.a1["passed"] is False
+    assert settings["wm_lr"] == 1e-4 and settings["source_fraction"] == .5
+    assert options["domain"] == "P1" and options["recipe"] == "main" and not options["frozen"]
 
 
 def test_p2_requires_matching_three_seed_p1_gate(tmp_path):

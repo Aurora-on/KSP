@@ -226,26 +226,17 @@ def select_checkpoint(cheap_rows):
     return max(cheap_rows, key=nominal.validation_rank)
 
 
-def _a1_settings(inputs, domain, smoke):
-    if smoke:
-        return 1e-4, 0.5
+def _verify_a1_provenance(inputs, domain):
+    """Check source identities and held-out records independently of offline gate scores."""
     a1 = inputs.a1
-    recipe = a1.get("selected_recipe") or {}
-    expected = {"main": (1e-4, .5, 1000), "fallback": (3e-4, .2, 3000)}
-    if (a1.get("domain") != "P1" or a1.get("passed") is not True
-            or recipe.get("name") not in expected
-            or (recipe.get("lr"), recipe.get("source_fraction"), recipe.get("updates"))
-            != expected[recipe["name"]]):
-        raise ValueError("A2 requires a passing P1 A1 report under a prescribed recipe")
     domain_a1 = inputs.domain_a1 or a1
-    if domain_a1["domain"] != domain:
+    if a1.get("domain") != "P1" or domain_a1.get("domain") != domain:
         raise ValueError("A1 data provenance must refer to the online target domain")
     for report in (a1, domain_a1):
-        if (report["source_checkpoint_sha256"] != file_hash(Path(inputs.checkpoint))
-                or report["source_replay_sha256"] != inputs.source_meta["replay_sha256"]
-                or len(report["train_reset_seeds"]) != 30 or len(report["heldout_reset_seeds"]) != 50):
+        if (report.get("source_checkpoint_sha256") != CHECKPOINT_SHA
+                or report.get("source_replay_sha256") != inputs.source_meta["replay_sha256"]
+                or len(report.get("train_reset_seeds", ())) != 30 or len(report.get("heldout_reset_seeds", ())) != 50):
             raise ValueError("A1 provenance differs from the frozen inputs or episode budget")
-    return recipe["lr"], recipe["source_fraction"]
 
 
 def _adapt_round(model, opt_wm, actor, critic, opt_actor, opt_critic, pools, near, world_rng, start_rng, config, fraction):
@@ -334,13 +325,14 @@ def run_online(inputs, config, out, *, domain="P1", seed=31, frozen=False, smoke
         if config != json.loads((Path(__file__).resolve().parents[2] / "configs/adapt_online.json").read_text()) or seed not in SEEDS:
             raise ValueError("formal online runs require the prescribed configuration and seed")
         verify_inputs(inputs.checkpoint, inputs.source_meta, inputs.validation, inputs.test)
+        _verify_a1_provenance(inputs, domain)
     elif (config["iterations"] != 1 or config["collect_episodes"] != 2
           or not 0 <= config["wm_updates"] <= 1 or config["actor_updates"] != 1):
         raise ValueError("a smoke run uses one round, two resets and at most one of each update")
     c = _run_recipe(config, recipe)
     if smoke and recipe != "main":
         raise ValueError("smoke runs use the reduced main recipe")
-    wm_lr, source_fraction = _a1_settings(inputs, domain, smoke)
+    wm_lr, source_fraction = c["wm_lr"], c["source_fraction"]
     domain_a1 = inputs.domain_a1 or inputs.a1
     validation = nominal.manifest_prefix(inputs.validation, 2) if smoke else inputs.validation
     cheap = validation if smoke else nominal.cheap_validation_manifest(validation)

@@ -7,6 +7,8 @@
   "cpu_threads": 2,
   "wm_updates": 200,
   "wm_batch": 128,
+  "wm_lr": 0.0001,
+  "source_fraction": 0.5,
   "horizon": 64,
   "imagined_batch": 128,
   "actor_updates": 30,
