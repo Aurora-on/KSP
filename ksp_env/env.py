@@ -322,6 +322,33 @@ class KSPEnv:
             )
         return quaternion
 
+    def _main_engine_fuel_resources(self) -> tuple[str, ...]:
+        observation = self._observation_config()
+        value = observation.get("main_engine_fuel_resources")
+        if value is None and "main_engine_fuel_resource" in observation:
+            raise ConfigurationError(
+                "[observation].main_engine_fuel_resource is obsolete; use the "
+                "main_engine_fuel_resources list and report total mass in kg"
+            )
+        if is_tbd(value) or not isinstance(value, (list, tuple)) or not value:
+            raise ConfigurationError(
+                "[observation].main_engine_fuel_resources must be a non-empty list"
+            )
+        resources: list[str] = []
+        for item in value:
+            if not isinstance(item, str) or not item.strip():
+                raise ConfigurationError(
+                    "[observation].main_engine_fuel_resources must contain "
+                    "non-empty resource names"
+                )
+            name = item.strip()
+            if name in resources:
+                raise ConfigurationError(
+                    f"[observation].main_engine_fuel_resources contains duplicate {name!r}"
+                )
+            resources.append(name)
+        return tuple(resources)
+
     def _require_observation_config(self) -> None:
         observation = self._observation_config()
         frame = observation.get("frame")
@@ -331,9 +358,7 @@ class KSPEnv:
             raise ConfigurationError(
                 f"unsupported [observation].frame {frame!r}; only 'target_surface' is implemented"
             )
-        resource = observation.get("main_engine_fuel_resource")
-        if is_tbd(resource) or not isinstance(resource, str) or not resource.strip():
-            raise ConfigurationError("[observation].main_engine_fuel_resource is TBD")
+        self._main_engine_fuel_resources()
         self._body_to_task_rotation()
         self._target_coordinates()
 
@@ -474,10 +499,10 @@ class KSPEnv:
     def observe(self) -> Observation:
         """Build the task observation from kRPC telemetry.
 
-        This currently requires ``[observation].frame = 'target_surface'``,
-        a fixed target position and a configured main-engine fuel resource.
-        All three are still ``TBD`` in the checked-in task contract, so the
-        method raises ``ConfigurationError`` until those decisions are made.
+        This requires ``[observation].frame = 'target_surface'``, a fixed target
+        position, a body-to-task rotation and a non-empty
+        ``main_engine_fuel_resources`` list. The fuel field is the summed mass
+        of those resources in kg.
         """
 
         conn = self._require_connection()
@@ -495,12 +520,26 @@ class KSPEnv:
 
     def _observe_vessel(self, vessel: Any) -> Observation:
         frame = self._target_reference_frame()
-        fuel_resource = self._observation_config()["main_engine_fuel_resource"]
+        fuel_resources = self._main_engine_fuel_resources()
         body_to_task = self._body_to_task_rotation()
 
         resources = vessel.resources
-        if not resources.has_resource(fuel_resource):
-            raise VesselError(f"main-engine resource {fuel_resource!r} is not present on the vessel")
+        density_by_name: dict[str, float] = {}
+        for resource in resources.all:
+            density_by_name.setdefault(str(resource.name), float(resource.density))
+        fuel_amounts_kg = []
+        for name in fuel_resources:
+            if not resources.has_resource(name):
+                raise VesselError(
+                    f"main-engine resource {name!r} is not present on the vessel"
+                )
+            if name not in density_by_name:
+                raise VesselError(
+                    f"main-engine resource {name!r} has no readable density"
+                )
+            fuel_amounts_kg.append(
+                float(resources.amount(name)) * density_by_name[name]
+            )
 
         return Observation(
             position_m=tuple(float(value) for value in vessel.position(frame)),
@@ -512,7 +551,7 @@ class KSPEnv:
                 tuple(float(value) for value in vessel.angular_velocity(frame)),
                 body_to_task,
             ),
-            main_engine_fuel=float(resources.amount(fuel_resource)),
+            main_engine_fuel=math.fsum(fuel_amounts_kg),
         )
 
     # ------------------------------------------------------------------

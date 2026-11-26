@@ -2,6 +2,14 @@
 
 On 2026-11-25 the project lead approved the S3 task values for nominal KSP descent. The KSP integration group will identify a flat site, supply its measured coordinates and clearance reference, and provide a reproducible descent save. The team will choose how to reconcile the craft and simulator **after measuring the craft**. The orbit test save and its sub-satellite coordinates identify the probe used to collect existing evidence. The authoritative fields are in the [shared task configuration](../configs/mun_landing.toml).
 
+## Main-engine fuel observation (2026-11-26)
+
+The project lead decided that `main_engine_fuel` is the total mass of the
+configured main-engine propellant resources in kg, not the amount of one raw
+resource. For the candidate craft the resources are LiquidFuel and Oxidizer:
+450 and 550 units, or 5,000 kg combined. The adapter sums amount × density for
+`[observation].main_engine_fuel_resources`. Normalization remains `TBD`.
+
 ## Approved task values
 
 | Quantity | Decision |
@@ -12,7 +20,7 @@ On 2026-11-25 the project lead approved the S3 task values for nominal KSP desce
 | Control interval and horizon | Hold each action for 0.1 s of game time (10 Hz). Time out at 90 s. Record the actual UT interval on every transition. |
 | Touchdown and stability | Total speed ≤2.0 m/s, tilt ≤10°, angular-speed norm ≤0.2 rad/s (11.4591559026°/s). Require 5 consecutive seconds of stable contact and an intact vessel. |
 | Precision | Target radius 5.0 m. Report precision across all attempts and safe-in-target separately. |
-| Observation | Retain position, velocity, orientation, body angular velocity and main-engine propellant. Record mass and inertia for diagnostics only. Source checkpoint preprocessing is recorded in the handoff. |
+| Observation | Retain position, velocity, orientation, body angular velocity and main-engine propellant mass in kg. Record mass and inertia for diagnostics only. Source checkpoint preprocessing is recorded in the handoff. |
 
 The source reset sampler starts with a full main tank. The KSP integration group must supply the applicable propellant resource, units and usable mass for the selected configuration. The KSP contact signal, terrain reference and repeatable reset still need live acceptance before any readiness flag changes. The exact source sampling code and the nominal pilot configuration are available for comparison. [Reset sampler](../simulator/src/mun_lander/state.py) · [Pilot configuration](../simulator/configs/nominal.json)
 

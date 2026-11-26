@@ -39,7 +39,7 @@ The adapter must reuse kRPC instead of reimplementing its transport or math.
 | Angular velocity | `Vessel.angular_velocity(frame)` → rad/s |
 | Altitude, surface speed, vertical speed | `Vessel.flight(frame)` |
 | Manual frame transforms | `SpaceCenter.transform_position/velocity/rotation/direction` |
-| Main-engine fuel | `Vessel.resources`, `Engine.propellants` |
+| Main-engine fuel | `Vessel.resources`, `Resource.density`, `Engine.propellants` |
 | RCS and throttle | `Vessel.control`, `Control.pitch/yaw/roll/throttle` |
 | Physics-tick stepping | `KRPC.hold_tick/next_tick/release_tick` |
 | Debug snapshot setup | `Debug.set_position/set_velocity/set_direction/set_angular_velocity/fill_all_resources` |
@@ -140,7 +140,7 @@ to run until all of the following are defined:
 
 - `[observation].frame = "target_surface"`
 - `[scenario].target_position` (latitude, longitude, altitude)
-- `[observation].main_engine_fuel_resource`
+- `[observation].main_engine_fuel_resources` (non-empty list; summed mass in kg)
 - `[observation].body_to_task_rotation_xyzw` (fixed craft body mapping)
 
 ### Stepping by game time
@@ -154,8 +154,8 @@ difference as the transition duration.
 
 For a single-tick probe, call `step_tick(action)`. The two bundled
 `adapter_test_only` profiles also retain single-tick behavior through
-`step(action)`. Both entry points require a configured target frame, a main
-engine fuel resource and `[action].rcs_semantics = "normalized_input"`.
+`step(action)`. Both entry points require a configured target frame, configured
+main-engine fuel resources and `[action].rcs_semantics = "normalized_input"`.
 They apply the action through `Vessel.control` with `input_mode = override`,
 SAS and reaction wheels disabled.
 
