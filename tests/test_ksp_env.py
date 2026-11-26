@@ -63,7 +63,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(config.raw["status"], "adapter_test_only")
         self.assertEqual(config.raw["target_body"], "Mun")
         self.assertEqual(config.raw["scenario"]["save_name"], "Mun landing 1")
-        self.assertEqual(config.raw["scenario"]["target_position"], [0.0, 139.70616, 0.0])
+        self.assertEqual(config.raw["scenario"]["target_position"], [0.0, 140.5, 0.0])
         self.assertEqual(
             config.raw["observation"]["main_engine_fuel_resources"],
             ["LiquidFuel", "Oxidizer"],

@@ -2,18 +2,17 @@
 
 On 2026-11-25 the project lead approved the S3 task values for nominal KSP descent. The KSP integration group will identify a flat site, supply its measured coordinates and clearance reference, and provide a reproducible descent save. The team will choose how to reconcile the craft and simulator **after measuring the craft**. The orbit test save and its sub-satellite coordinates identify the probe used to collect existing evidence. The authoritative fields are in the [shared task configuration](../configs/mun_landing.toml).
 
-## Candidate craft and site for measurement (2026-11-25)
+## Candidate craft and site for measurement (2026-11-25; site updated 2026-11-26)
 
-The project lead selected the existing `两级着陆器` and the equatorial point at
-latitude 0° and longitude 139.70616° as the candidate craft and landing site for
-task integration. A first read-only measurement recorded 11,460 kg wet mass,
-6,060 kg dry mass, four active 60 kN engines and a 5 m-grid terrain slope of
-6.425°. A wider check found a steep rise to about 100 m within 10 m north of
-the target. These are candidate measurements, not frozen task values: the site
-needs review or replacement, and the target altitude/clearance reference,
-actuator calibration and named descent save remain open. A coarse equatorial
-scan identified latitude 0°, longitude 140.5° as a better replacement
-candidate (2.623° 5 m-grid slope), subject to verification.
+The project lead selected the existing `两级着陆器` for task integration and
+moved the candidate landing site from latitude 0°, longitude 139.70616° to
+latitude 0°, longitude 140.5°. The first point was not flat: a 5 m-grid slope of
+6.425° and a steep rise to about 100 m within 10 m north. The replacement point
+measured 2.630° on a 5 m grid, 2.574° on a 10 m grid and 2.229° on a 20 m grid,
+with 1.23 m of 10 m-grid relief and no comparable cliff in the sampled grid.
+These are candidate measurements, not frozen task values: the target
+altitude/clearance reference, actuator calibration and named descent save
+remain open.
 
 ## Main-engine fuel observation (2026-11-26)
 

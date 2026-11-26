@@ -61,7 +61,7 @@ Two non-task profiles exercise the live adapter:
 Both are explicitly marked `status = "adapter_test_only"` and keep
 `initial_state_ready`, `success_thresholds_ready` and
 `reset_step_validated` false. Do not report results from these profiles as Mun
-task results. The Mun test target is not a frozen final landing site.
+task results. The Mun test target is a candidate equatorial site, not a frozen final landing site.
 
 The adapter builds its test target frame from kRPC's surface frame with axes
 `x=east, y=south, z=up`. The task contract's target frame is still `TBD`; this

@@ -71,9 +71,27 @@ of 10 m-grid relief. This is a replacement candidate for follow-up, not an
 accepted site.
 
 A 110 m target-frame base save (`Mun landing-candidate-100m`) was also created
-and verified; the debug calls advanced the state, so the observed surface
-altitude was 80.852 m rather than the requested value. This base save is only a
-candidate asset and is not a task-grade initial state.
+and verified at the first candidate; the debug calls advanced the state, so the
+observed surface altitude was 80.852 m rather than the requested value. It is a
+candidate asset, not a task-grade initial state.
+
+## 2026-11-26 — Replacement candidate site check
+
+The project lead selected latitude 0°, longitude 140.5° as the replacement
+candidate site. With the craft moved out of the ray path, the fitted slopes
+were 2.630° on a 5 m grid, 2.574° on a 10 m grid and 2.229° on a 20 m grid. The
+5 m-grid RMS residual was 0.061 m; the 10 m-grid height range was 1.23 m. No
+cliff comparable to the first candidate appeared in the sampled grids. The
+candidate still needs a target altitude/clearance decision and repeatable reset
+acceptance; it is not a frozen site.
+
+A 110 m target-frame base save (`Mun landing-candidate-140p5-100m`) was created
+and verified at the replacement point. The debug calls advanced the state, so
+the observed position was 81.22 m above the target datum, the surface altitude
+was 81.224 m and the vertical speed was -10.3005 m/s. Fuel was 5000.0 kg, the
+save was verified, and its SHA-256 was
+`00296a95ca3cb8e7e7b7e0cdc6a10e9aa3b9c7bf6a2d0e30f97889eb23891843`.
+This is still a candidate asset, not a task-grade initial state.
 
 Following the measurement, the team decided that `main_engine_fuel` is the
 total mass of the configured main-engine propellants in kg. For this craft the
