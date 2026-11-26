@@ -17,7 +17,8 @@ does not import from `scripts/`.
 ksp_env/
 ├── __init__.py       # public exports
 ├── contracts.py      # Observation, Action, StepResult, errors, config
-└── env.py            # KSPEnv: connect / reset / step / close
+├── env.py            # KSPEnv: connect / reset / step / close
+└── initial_states.py # frozen KSP initial-state sampler
 ```
 
 The package has no mandatory NumPy, Gymnasium or PyTorch import. kRPC is
@@ -137,6 +138,50 @@ part is recorded but excluded from the plane fit. The JSON also warns when
 the configured target altitude differs from the measured terrain height and
 when the configured main-engine fuel resources do not cover the active engine
 propellants.
+
+## Initial-state bank
+
+The frozen distribution sampler lives in `ksp_env/initial_states.py`. It
+samples position, velocity, thrust-axis direction, roll and body angular
+velocity from the ranges in `configs/mun_landing.toml`; it does not touch KSP.
+
+`scripts/generate_initial_state_bank.py` applies sampled states to a base
+snapshot with kRPC `Debug`, saves named snapshots, reloads them and records
+requested versus observed state. Debug calls advance physics while setting a
+state, so the script uses an altitude offset and limited retry correction; the
+observed clearance is what the bank records. A successful run still means only
+that the generation module works. It does not prove the distribution or reset
+acceptance.
+
+```sh
+.venv/bin/python scripts/generate_initial_state_bank.py \
+  --base-save "Mun landing-candidate-140p5-100m-legs" \
+  --save-dir "/path/to/saves/Munar landing" \
+  --count 5 --seed 33 \
+  --output reports/initial-state-bank.json
+```
+
+Generated snapshots and the JSON manifest stay outside Git. Use
+`--prefix` to choose a separate bank and `--altitude-offset-m` /
+`--vertical-velocity-offset-m-s` to tune the Debug compensation.
+
+## Reset mechanism benchmark
+
+`scripts/benchmark_reset.py` compares named-save loads with an in-memory
+`Debug` reset. It records wall-clock time and observed state for repeated base
+loads, a fixed bank load, a single in-memory apply and an altitude-corrected
+apply. It restores the base snapshot and pauses at the end.
+
+```sh
+.venv/bin/python scripts/benchmark_reset.py \
+  --base-save "Mun landing-candidate-140p5-100m-legs" \
+  --bank-save "Mun landing-bank-140p5-v3-33-00" \
+  --count 5 --output reports/reset-benchmark.json
+```
+
+This is a measurement harness, not a task reset implementation. The observed
+state is always the source of truth; do not treat a requested `Debug` state as
+the episode start.
 
 ## Public API
 
