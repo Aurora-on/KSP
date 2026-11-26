@@ -1,5 +1,13 @@
 # Validation record
 
+## 2026-11-26 — Source-domain transfer sensitivity
+
+Using the 100 frozen **validation** starts, CPU revision `86465b4` evaluated 120 controller–condition pairs (12,000 episodes). Nominal online, BC-only and nominal scripted controllers each landed safely in target 100 times. Their mean returns reproduced 93.3988, 92.0332 and 92.1085. All 1,100 repeated episode records matched. Fuel-fraction conversion restored nominal outcome counts for all three, with a maximum absolute mean-return difference of 3.21e-8 (rounded).
+
+At nominal thrust, uniform inertia multipliers of 2, 3 and 6 were the largest tested values with at least 95 safe landings for online (98), BC-only (97) and the script given the perturbed parameters (95), respectively. The next tested multipliers gave 94, 79 and 0 safe landings. The weak-control proxy gave the privileged script 100 crashes. The roll-only 4× inertia request violates the rigid-body triangle inequality. Separate roll-only 3× inertia and quarter roll torque diagnostics each retained 100 safe in-target landings for all four controllers.
+
+At the candidate full-thrust acceleration ratio and nominal inertia, online landed safely in target 100/100 with either zero or one control step of delay. BC-only and the nominal script each timed out on all 100 starts in both cases. At the 25% thrust limit all three landed safely in target on every start, with and without delay. These are simulator results. The [transfer sensitivity report](../agent/docs/TRANSFER_SENSITIVITY.md) records the discrete torque brackets, KSP measurement requests, fuel proposal and preregistered zero-shot comparison.
+
 ## 2026-11-25 — Debug-generated low-altitude snapshot
 
 `KSPEnv.create_initial_save` was exercised live from `Mun landing 1`. The
