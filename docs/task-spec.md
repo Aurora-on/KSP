@@ -1,17 +1,17 @@
 # Mun landing task contract
 
-The team adopted the qualitative Mun task on 2026-11-17 and froze its nominal initial-state distribution, timing, observation fields and safety limits on 2026-11-25. Craft, site and KSP landing acceptance are pending. [Decision record](nominal-task-decisions.md)
+The team adopted the qualitative Mun task on 2026-11-17 and froze its nominal initial-state distribution, timing, observation fields and safety limits on 2026-11-25. The target point is recorded as latitude 0°, longitude 140.5°, altitude 0 m; craft calibration, the local frame/clearance reference and KSP landing acceptance are still being completed. [Decision record](nominal-task-decisions.md)
 
 The KSP adapter and the fast pretraining simulator MUST expose the same observation, action, timing and episode semantics. `configs/mun_landing.toml` mirrors the machine-readable subset of this contract; when the two disagree, this document and the config MUST be reconciled before an experiment is run.
 
 ## 1. Nominal scenario
 
 - Target body: Mun.
-- Target site: flat surface. Coordinates and local frame are **TBD**.
+- Target site: flat surface at latitude 0°, longitude 140.5°, altitude 0 m. The local frame, clearance reference and site elevation convention are **TBD**.
 - Lander: one fixed nominal craft. Mass, inertia tensor, engine and RCS properties are **TBD**.
 - Gravity: fixed nominal Mun gravity. OOD gravity is an evaluation condition, not the nominal task.
 - Initialization: randomize initial position, velocity and attitude for every training and evaluation method. Use the S3 distribution for target-relative position, velocity, attitude and body angular velocity. Its support and sampling law are recorded in the [decision table](nominal-task-decisions.md).
-- Sample initial clearance uniformly from 80 to 120 m, hold commands at 10 Hz of game time, and end the episode at 90 s. The target point and named descent save still require KSP measurements.
+- Sample initial clearance uniformly from 80 to 120 m, hold commands at 10 Hz of game time, and end the episode at 90 s. The target point is recorded; the named descent save and clearance reference still require KSP measurements.
 
 The nominal task is fixed, but the agent must still see randomized initial states. "Fixed craft" does not mean fixed initial state.
 
@@ -90,7 +90,7 @@ Imagined transitions are never counted as KSP data. RQ2 variants use the same re
 The following MUST remain marked `TBD` until a decision is recorded:
 
 - Lander model and its mass/inertia/engine/RCS parameters.
-- Target coordinates, local frame, site elevation and clearance reference.
+- Local frame, site elevation and clearance reference; the target coordinate itself is recorded in the config.
 - Named descent save, reset construction and achievable readback tolerances.
 - Touchdown-detection tolerance and the mapping from KSP contact signals to an uninterrupted stable interval.
 - KSP interaction budget and per-group simulator budget.

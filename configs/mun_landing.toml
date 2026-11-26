@@ -3,7 +3,7 @@
 # (reviewed 2026-11-17). Numeric choices marked "TBD" are deliberately
 # unset; this is not a runnable or validated environment yet.
 # 2026-11-25 team decision: see docs/nominal-task-decisions.md.
-status = "nominal_task_numbers_frozen_craft_and_site_pending"
+status = "nominal_task_numbers_frozen_target_recorded_craft_and_clearance_pending"
 task = "powered_descent"
 target_body = "Mun"
 initial_state_ready = false
@@ -27,7 +27,7 @@ save_name = "TBD"  # named descent save; required by reset
 randomize_initial = ["position", "velocity", "attitude", "angular_velocity"]
 # Local vertical clearance at reset, uniformly distributed.
 descent_altitude_m = [80.0, 120.0]
-target_position = "TBD"
+target_position = [0.0, 140.5, 0.0]  # target surface point; clearance reference TBD
 initial_position_range = { x_m = [-30.0, 30.0], y_m = [-30.0, 30.0], horizontal_sampling = "independent_uniform" }
 initial_velocity_range = { x_m_s = [-2.0, 2.0], y_m_s = [-2.0, 2.0], z_m_s = [-8.0, -3.0], sampling = "independent_uniform_z_up" }
 initial_attitude_range = { max_tilt_deg = 12.0, thrust_axis_sampling = "uniform_solid_angle", yaw_sampling = "uniform_full_turn" }

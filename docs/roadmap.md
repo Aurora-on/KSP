@@ -1,12 +1,12 @@
 # Development order
 
-The final proposal fixes the qualitative task and the 2x2 comparison. The [2026-11-25 decisions](nominal-task-decisions.md) fix the initial-state distribution, timing, safety limits and target radius. Craft, site and experiment budgets remain open. Do not start comparison runs until `docs/task-spec.md`, `docs/experiment-protocol.md` and `configs/mun_landing.toml` agree and no required numeric field is still `TBD`.
+The final proposal fixes the qualitative task and the 2x2 comparison. The [2026-11-25 decisions](nominal-task-decisions.md) fix the initial-state distribution, timing, safety limits and target radius. The target coordinate is recorded; craft, clearance and experiment budgets remain open. Do not start comparison runs until `docs/task-spec.md`, `docs/experiment-protocol.md` and `configs/mun_landing.toml` agree and no required numeric field is still `TBD`.
 
 The standalone 6DOF simulator is now available in [`simulator/`](../simulator/README.md), including a scripted controller, repeatable resets, tests and evaluation tools. Its repository default uses the agreed 5 s stability window. The shared task now adopts the S3 distribution and safety settings. Vehicle dynamics and contact parameters still require KSP measurements. See the [integration record](../simulator/docs/REPOSITORY_INTEGRATION.md) for remaining action, coordinate and metric differences.
 
 ## 1. Freeze the task
 
-Measure the lander and site, then settle craft choice, target coordinates, normalization and action scaling. Use the approved initial-state distribution, timing and safety thresholds. Fill the `TBD` values in `configs/mun_landing.toml` only after those decisions. Record actual craft parameters, the named save and snapshot hashes in a local asset manifest.
+Measure the lander and site clearance, then settle craft choice, normalization and action scaling. Use the approved initial-state distribution, timing and safety thresholds. Fill the `TBD` values in `configs/mun_landing.toml` only after those decisions. Record actual craft parameters, the named save and snapshot hashes in a local asset manifest.
 
 Acceptance: the task contract has no `TBD` in fields required to run; every numeric choice has a recorded decision; `initial_state_ready` and `success_thresholds_ready` can be set true only after the corresponding checks pass.
 

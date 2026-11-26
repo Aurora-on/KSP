@@ -63,7 +63,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(config.raw["status"], "adapter_test_only")
         self.assertEqual(config.raw["target_body"], "Mun")
         self.assertEqual(config.raw["scenario"]["save_name"], "Mun landing 1")
-        self.assertEqual(config.raw["scenario"]["target_position"], [0.0, 139.70616, 0.0])
+        self.assertEqual(config.raw["scenario"]["target_position"], [0.0, 140.5, 0.0])
         self.assertEqual(
             config.raw["observation"]["main_engine_fuel_resources"],
             ["LiquidFuel", "Oxidizer"],
@@ -82,7 +82,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(config.stream_port, 50001)
         self.assertEqual(config.server_version, "0.7.0")
         self.assertEqual(config.raw["target_body"], "Mun")
-        self.assertTrue(is_tbd(config.raw["scenario"]["target_position"]))
+        self.assertEqual(config.raw["scenario"]["target_position"], [0.0, 140.5, 0.0])
 
     def test_tbd_helpers_are_explicit(self):
         self.assertTrue(is_tbd("TBD"))

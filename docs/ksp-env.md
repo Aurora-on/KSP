@@ -3,8 +3,8 @@
 Status: importable adapter with a fixed control interval, provisional contact
 detection and a debug snapshot builder. Connection, config loading, read-only
 diagnostics, observation, reset, stepping and snapshot creation are implemented.
-Task-level target, save, frame and actuator calibration remain `TBD` in
-[`task-spec.md`](task-spec.md) and [`configs/mun_landing.toml`](../configs/mun_landing.toml).
+Task-level save, frame, clearance and actuator calibration remain `TBD` in
+[`task-spec.md`](task-spec.md) and [`configs/mun_landing.toml`](../configs/mun_landing.toml); the candidate target coordinate is recorded.
 No Mun landing has been validated.
 
 The adapter lives in `ksp_env/`; [`scripts/`](../scripts) keeps operational
@@ -56,12 +56,12 @@ Two non-task profiles exercise the live adapter:
 - `configs/ksp_adapter_test.toml`: Kerbin launchpad save file `persistent`,
   target at the launchpad.
 - `configs/ksp_mun_test.toml`: Mun orbit save file `Mun landing 1`, target at
-  the sub-satellite point of the saved orbit.
+  the accepted candidate equatorial point, latitude 0°, longitude 140.5°.
 
 Both are explicitly marked `status = "adapter_test_only"` and keep
 `initial_state_ready`, `success_thresholds_ready` and
 `reset_step_validated` false. Do not report results from these profiles as Mun
-task results. The Mun test target is not a frozen final landing site.
+task results. The Mun test target is the accepted candidate equatorial landing point for KSP integration; the same target coordinate is now recorded in the normative config, while clearance and frame decisions remain open.
 
 The adapter builds its test target frame from kRPC's surface frame with axes
 `x=east, y=south, z=up`. The task contract's target frame is still `TBD`; this
@@ -114,6 +114,29 @@ the task contract. It is read-only by default; `--execute` sends short pulses.
   start.
 
 The script writes `reports/control-response.json` when `--output` is given.
+
+## Candidate-scene measurement
+
+`scripts/measure_candidate.py` is a read-only measurement pass for a candidate
+craft and landing point. It reads the active vessel's mass, dry mass, inertia,
+resources, engines and RCS parts, then casts a small vertical-ray grid around
+the configured target to estimate local terrain height, slope and surface
+normal. It does not send controls, save, load or modify
+`configs/mun_landing.toml`.
+
+```sh
+.venv/bin/python scripts/measure_candidate.py \
+  --config configs/ksp_mun_test.toml \
+  --output reports/candidate-scene.json
+```
+
+The default terrain grid has a 5 m step, matching the frozen 5 m target radius.
+The ray start is lowered below the craft but kept above the target datum, so a
+nearby lander cannot be mistaken for terrain. A ray that still hits a vessel
+part is recorded but excluded from the plane fit. The JSON also warns when
+the configured target altitude differs from the measured terrain height and
+when the configured main-engine fuel resources do not cover the active engine
+propellants.
 
 ## Public API
 
