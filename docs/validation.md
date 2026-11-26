@@ -82,8 +82,9 @@ candidate site. With the craft moved out of the ray path, the fitted slopes
 were 2.630° on a 5 m grid, 2.574° on a 10 m grid and 2.229° on a 20 m grid. The
 5 m-grid RMS residual was 0.061 m; the 10 m-grid height range was 1.23 m. No
 cliff comparable to the first candidate appeared in the sampled grids. The
-candidate still needs a target altitude/clearance decision and repeatable reset
-acceptance; it is not a frozen site.
+normative target position is now recorded as `[0.0, 140.5, 0.0]`; the target
+frame and clearance reference still need decisions, and repeatable reset
+acceptance remains open.
 
 A 110 m target-frame base save (`Mun landing-candidate-140p5-100m`) was created
 and verified at the replacement point. The debug calls advanced the state, so
@@ -94,7 +95,7 @@ save was verified, and its SHA-256 was
 This is still a candidate asset, not a task-grade initial state. The project
 lead also inspected the replacement point in the running game and found no
 rocks, and accepted it as the landing point for integration. This is a visual
-site check, not a reset or task validation; the target altitude/clearance
+site check, not a reset or task validation; the target frame, clearance
 reference and the three readiness flags remain open.
 
 The base snapshot had retracted landing legs. A gear-deployed candidate save,

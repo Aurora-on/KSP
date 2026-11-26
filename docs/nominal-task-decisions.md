@@ -10,14 +10,15 @@ latitude 0°, longitude 140.5°. The first point was not flat: a 5 m-grid slope 
 6.425° and a steep rise to about 100 m within 10 m north. The replacement point
 measured 2.630° on a 5 m grid, 2.574° on a 10 m grid and 2.229° on a 20 m grid,
 with 1.23 m of 10 m-grid relief and no comparable cliff in the sampled grid.
-These are candidate measurements, not frozen task values: the target
-altitude/clearance reference, actuator calibration and named descent save
-remain open.
+These are candidate measurements, not frozen task values: the target local
+frame, clearance reference, actuator calibration and named descent save remain
+open.
 
 The project lead inspected the replacement point in the running game on
 2026-11-26 and found no rocks; it is accepted as the landing point for KSP
-integration. The normative `target_position` remains `TBD` until the target
-altitude and clearance reference are recorded.
+integration. The normative target is recorded as latitude 0°, longitude
+140.5°, altitude 0 m. The target local frame, site elevation convention and
+clearance reference remain open.
 
 ## Main-engine fuel observation (2026-11-26)
 
@@ -36,6 +37,7 @@ resource. For the candidate craft the resources are LiquidFuel and Oxidizer:
 | Initial attitude and rate | Draw the thrust direction uniformly in solid angle in a 12° cone about vertical, with uniform azimuth and yaw over a full turn. Draw body angular velocity uniformly by volume inside a ball of radius 0.05 rad/s. |
 | Control interval and horizon | Hold each action for 0.1 s of game time (10 Hz). Time out at 90 s. Record the actual UT interval on every transition. |
 | Touchdown and stability | Total speed ≤2.0 m/s, tilt ≤10°, angular-speed norm ≤0.2 rad/s (11.4591559026°/s). Require 5 consecutive seconds of stable contact and an intact vessel. |
+| Target point | Latitude 0°, longitude 140.5°, altitude 0 m in the target surface frame; local frame and clearance reference remain TBD. |
 | Precision | Target radius 5.0 m. Report precision across all attempts and safe-in-target separately. |
 | Observation | Retain position, velocity, orientation, body angular velocity and main-engine propellant mass in kg. Record mass and inertia for diagnostics only. Source checkpoint preprocessing is recorded in the handoff. |
 
