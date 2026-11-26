@@ -26,6 +26,7 @@ from .contracts import (
     require_number,
 )
 from .env import KSPEnv
+from .initial_states import InitialState, sample_bank, sample_initial_state
 
 __all__ = [
     "Action",
@@ -36,6 +37,7 @@ __all__ = [
     "KSPConnectionError",
     "KSPEnv",
     "KSPEnvError",
+    "InitialState",
     "Observation",
     "ResetError",
     "ResetInfo",
@@ -48,4 +50,6 @@ __all__ = [
     "load_config",
     "require_defined",
     "require_number",
+    "sample_bank",
+    "sample_initial_state",
 ]
